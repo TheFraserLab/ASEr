@@ -17,16 +17,15 @@ Pipeline Flow
   been masked by 'N'. An existing genome file can be masked using the 
   MaskReferencefromBED.pl script::
        
- usage: MaskReferencefromBED.pl <SNP BED FILE> <GENOME FASTA FILE> <MASKED OUTPUT FASTA>
-  
- A list of SNPs in BED format must be supplied as follows:
-   
- CHR \t 0-POSITION \t 1-POSITION \t REF|ALT
-   
- e.g.
-   
- chr02  1242  1243  A|G
-  
+    usage: MaskReferencefromBED.pl <SNP BED FILE> <GENOME FASTA FILE> <MASKED OUTPUT FASTA>
+    
+    A list of SNPs in BED format must be supplied as follows:
+    
+    CHR \t 0-POSITION \t 1-POSITION \t REF|ALT
+    
+    e.g.
+    
+    chr02  1242  1243  A|G
 
 - The pipeline requires that reads mapped to the masked genome be supplied in SAM or BAM
   format. Assuming that reads will be mapped with STAR 
