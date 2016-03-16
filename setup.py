@@ -48,8 +48,6 @@ setup(
 
     keywords='ASE fastq BAM SNP',
 
-    install_requires=['cython'],
-    ext_modules=cythonize("bed_lookup/*.pyx", language='c++'),
     scripts=scpts,
     packages=['ASEr']
 
