@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Intersect bed files of snps/exons and print a snp list or new bed.
+
+=============================================================================
+
+        AUTHOR: Michael D Dacre, mike.dacre@gmail.com
+  ORGANIZATION: Stanford University
+       LICENSE: MIT License, property of Stanford, use as you wish
+       VERSION: 0.1
+       CREATED: 2016-47-17 11:03
+ Last modified: 2016-03-17 12:07
+
+   DESCRIPTION: This script works best if run in parallel on multiple
+                chromosomes at the same time. e.g.::
+                    zcat dbsnp.bed.gz|  awk '{print $0 >> "snps/"$1".bed"}'
+                    zcat refseq.bed.gz|  awk '{print $0 >> "exons/"$1".bed"}'
+                    cd snps
+                    parallel filter_snps_by_exon -o o.{} ../exons/{} {} ::: *
+
+=============================================================================
+"""
+from ASEr import snps
+import sys
+import argparse
+
+
+def main(argv=None):
+    """Run filter_snps_by_exon with either STDIN or argument."""
+    if not argv:
+        argv = sys.argv[1:]
+
+    parser  = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    # Exon file
+    files = parser.add_argument_group('Files')
+    files.add_argument('exon_file',
+                       help="Bed file of exons.")
+    files.add_argument('snp_file',
+                       help="Bed file of snps.")
+    files.add_argument('-o', '--outfile', default=sys.stdout,
+                       help="Output file (Default: STDOUT) (.gz OK)")
+
+    # Optional arguments
+    output = parser.add_argument_group('Output Options')
+    output.add_argument('-b', '--write-bed', action='store_true',
+                        help='Write the output as a bed, not a snp list. ' +
+                        'Automatic if outfile is a bedfile.')
+
+    args = parser.parse_args(argv)
+
+    snps.filter_snps_by_exon(args.snp_file, args.exon_file, args.outfile,
+                             args.write_bed)
+
+if __name__ == '__main__' and '__file__' in globals():
+    sys.exit(main())

@@ -1,8 +1,5 @@
-"""
-Setup Script
-"""
+"""ASEr Setup Script."""
 from setuptools import setup, find_packages
-from Cython.Build import cythonize
 from codecs import open
 from os import path
 from os import listdir

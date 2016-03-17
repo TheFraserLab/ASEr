@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-14 12:42
+ Last modified: 2016-03-17 11:52
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -33,7 +33,8 @@ def open_zipped(infile, mode='r'):
     Returns text mode file handle.
 
     If infile is a file handle or text device, it is returned without
-    changes."""
+    changes.
+    """
     mode   = mode[0] + 't'
     if hasattr(infile, 'write'):
         return infile
@@ -67,7 +68,7 @@ def run_cmd(cmd, args):
 
 
 def which(program):
-    """Replicate's the UNIX which command.
+    """Replicate the UNIX which command.
 
     Taken verbatim from:
         stackoverflow.com/questions/377017/test-if-executable-exists-in-python
@@ -91,3 +92,35 @@ def which(program):
                 return os.path.abspath(exe_file)
 
     return None
+
+
+def file_type(infile):
+    """Return file type after stripping gz or bz2."""
+    name_parts = infile.split('.')
+    if name_parts[-1] == 'gz' or name_parts[-1] == 'bz2':
+        name_parts.pop()
+    return name_parts[-1]
+
+
+def is_file_type(infile, types):
+    """Return True if infile is one of types.
+
+    :infile:  Any file name
+    :types:   String or list/tuple of strings (e.g ['bed', 'gtf'])
+    :returns: True or False
+
+    """
+    if isinstance(types, str):
+        types = [types]
+    if not isinstance(types, (list, tuple)):
+        raise Exception('types must be string list or tuple')
+    for typ in types:
+        if file_type(infile) == typ:
+            return True
+    return False
+
+
+def write_iterable(iterable, outfile):
+    """Write all elements of iterable to outfile."""
+    with open_zipped(outfile, 'w') as fout:
+        fout.write('\n'.join(iterable))
