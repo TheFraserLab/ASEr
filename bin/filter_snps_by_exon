@@ -10,7 +10,7 @@ Intersect bed files of snps/exons and print a snp list or new bed.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-47-17 11:03
- Last modified: 2016-03-17 12:07
+ Last modified: 2016-03-17 13:44
 
    DESCRIPTION: This script works best if run in parallel on multiple
                 chromosomes at the same time. e.g.::
@@ -21,17 +21,30 @@ Intersect bed files of snps/exons and print a snp list or new bed.
 
 =============================================================================
 """
-from ASEr import snps
 import sys
 import argparse
+try:
+    from pybedtools import BedTool
+except ImportError:
+    sys.stderr.write('\npybedtools is not installed.\n' +
+                     'Please install and try again. ' +
+                     'You can get it from here:\n' +
+                     'https://github.com/daler/pybedtools\n\n')
+    raise
+from ASEr import snps
 
 
 def main(argv=None):
     """Run filter_snps_by_exon with either STDIN or argument."""
+    usage = "\tfilter_snps_by_exon [-b] exon_file snp_file > outfile \n"
+    usage += "\tfilter_snps_by_exon [-b] -o outfile exon_file snp_file\n"
+    usage += "\tfilter_snps_by_exon [-h]"
+
     if not argv:
         argv = sys.argv[1:]
 
     parser  = argparse.ArgumentParser(
+        usage=usage,
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
@@ -51,6 +64,16 @@ def main(argv=None):
                         'Automatic if outfile is a bedfile.')
 
     args = parser.parse_args(argv)
+
+    # Make sure the files are in the right order
+    if len(BedTool(args.snp_file)[1]) > 1:
+        sys.stderr.write('snp_file {} '.format(args.snp_file) +
+                         'has entries that are wider the 1 base pair.\n' +
+                         "That shouldn't happen, are you sure you put the " +
+                         "snp and exon files in the right order?\n\nUsage:")
+        sys.stderr.write(usage + '\n')
+        return 2
+
 
     snps.filter_snps_by_exon(args.snp_file, args.exon_file, args.outfile,
                              args.write_bed)
