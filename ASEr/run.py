@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-17 11:52
+ Last modified: 2016-03-17 12:20
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -110,6 +110,8 @@ def is_file_type(infile, types):
     :returns: True or False
 
     """
+    if hasattr(infile, 'write'):
+        return False
     if isinstance(types, str):
         types = [types]
     if not isinstance(types, (list, tuple)):

@@ -8,7 +8,7 @@ Simple wrapper for some plink commands relevant to this pipleine.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-31-11 14:03
- Last modified: 2016-03-14 12:52
+ Last modified: 2016-03-18 16:11
 
    DESCRIPTION:
 

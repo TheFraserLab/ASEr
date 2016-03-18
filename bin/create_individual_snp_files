@@ -1,0 +1,231 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Create a bed file for each individual containing only exonic heterozygous snps.
+
+==============================================================================
+
+        AUTHOR: Michael D Dacre, mike.dacre@gmail.com
+  ORGANIZATION: Stanford University
+       LICENSE: MIT License, property of Stanford, use as you wish
+       VERSION: 0.1
+       CREATED: 2016-46-18 11:03
+ Last modified: 2016-03-18 16:25
+
+   DESCRIPTION: This script provides a lot of flexibility in creating bed
+                files containing only exonic heterozygous SNPs.
+                It works by first building a list of exonic SNPs from a file
+                of SNPs and a file of exons. It works best with bed files,
+                these can be obtained from::
+                    https://genome.ucsc.edu/cgi-bin/hgTables
+                For example, you can download all RefSeq predictions as an
+                exon-only bed.
+                These can be pre-filtered with `filter_snps_by_exon`, or they
+                can be provided directly to this script.
+
+                To get heterozygous sites, a plink recodeAD format file is
+                required. If your data is in plink format already, the plink
+                prefix can be provided, if the raw file doesn't exist, it will
+                be generated.
+
+                Individuals can be filtered out using the filter flags.
+
+                The result of this script is a full set of individual bed
+                files in the output directory.
+
+==============================================================================
+"""
+import os
+import sys
+import argparse
+from ASEr import snps
+from ASEr import plink
+from ASEr import logme
+from ASEr.run import open_zipped
+
+logme.MIN_LEVEL = 'info'
+
+def main(argv=None):
+    """Run as a script."""
+    usage  = "\tcreate_individual_snp_files [-g] [-o outdir] [-t threads] plink "
+    usage += "snps\n"
+    usage += "\tcreate_individual_snp_files [-g] [-o outdir] [-t threads] "
+    usage += "--snpfile snpfile --exonfile exonfile plink\n"
+    usage += "\tcreate_individual_snp_files --help"
+    if not argv:
+        argv = sys.argv[1:]
+
+    parser  = argparse.ArgumentParser(
+        description=__doc__,
+        usage=usage,
+        add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    # Reference Files
+    reffiles = parser.add_argument_group('Reference Files (positional)')
+    reffiles.add_argument('plink',
+                          help="The plink file, can be a prefix or full path")
+    reffiles.add_argument('snps', nargs='?', default=None,
+                          help="A bed file of exonic SNPs. " +
+                          "If not available, use the --snpfile" +
+                          " and --exonfile flags to generate this list on" +
+                          " the fly")
+
+    snpgen = parser.add_argument_group('Generate exonic SNP list',
+                                       "[Use if exon_snp file doesn't already" +
+                                       " exist]")
+    snpgen.add_argument('--snpfile',
+                          help="A bed file of snps (gzipped OK)")
+    snpgen.add_argument('--exonfile',
+                        help="A bed file of exons (gzipped OK).")
+
+    # Individual filtering
+    filtering = parser.add_argument_group('Filter Individuals')
+    filtering.add_argument('-f', '--filter',
+                           help="List of individuals to keep. Either " +
+                           "comma-separated or as a file (newline separated")
+    filtering.add_argument('--split_name',
+                           help="Split the individual name in plink on this " +
+                           "character (must be a single character)")
+    filtering.add_argument('--split_index', type=int, default=0,
+                           help="Index of split name to compare individuals " +
+                           "to")
+
+    optargs = parser.add_argument_group('Optional Arguments')
+    optargs.add_argument('-o', '--outdir',
+                         help="The output directory to write files to")
+    optargs.add_argument('-g', '--gzip', action='store_true',
+                         help="gzip compress the output files")
+    #  optargs.add_argument('-t', '--threads',
+                         #  help="Split plink file into this many chunks and " +
+                         #  "run in parallel")
+    optargs.add_argument('-v', '--verbose', action="store_true",
+                         help="Verbose output")
+    optargs.add_argument('-h', '--help', action="help",
+                         help="Show this help and exit.")
+
+    args = parser.parse_args(argv)
+
+    # Set log level if verbose
+    if args.verbose:
+        logme.MIN_LEVEL = 'debug'
+
+    ##########################################################################
+    #                            Argument Parsing                            #
+    ##########################################################################
+
+    # Need either snps or both snpfile and exonfile
+    if not args.snps and (not args.snpfile or not args.exonfile):
+        parser.print_help()
+        sys.stderr.write('\n\033[91mError\033[0m: Both --snpfile and ' +
+                         '--exonfile required if snps file not provided\n')
+        return 1
+
+    # Check that filter options make sense
+    if args.filter:
+        if os.path.isfile(args.filter):
+            individuals = []
+            with open_zipped(args.filter) as fin:
+                for i in fin:
+                    individuals.append(i.rstrip())
+        else:
+            individuals = args.filter.split(',')
+        if args.split_name:
+            args.split_name = args.split_name.strip('"').strip("'")
+            if len(args.split_name) is not 1:
+                parser.print_help()
+                sys.stderr.write('\n\033[91mError\033[0m: --split_name ' +
+                                 'must be a single character\n')
+                return 2
+    else:
+        if args.split_name or args.split_index:
+            parser.print_help()
+            sys.stderr.write('\n\033[91mError\033[0m: --split_name ' +
+                             'and --split_index are invalid without -f\n')
+            return 3
+
+    # Create outdir if it doesn't already exist
+    if args.outdir:
+        if not os.path.exists(args.outdir):
+            os.makedirs(args.outdir)
+        if not os.path.isdir(args.outdir):
+            parser.print_help()
+            sys.stderr.write('\n\033[91mError\033[0m: {} '.format(args.outdir) +
+                             'is not a valid directory.\n')
+            return 4
+
+    ##########################################################################
+    #                      Prepare SNPs and plink file                       #
+    ##########################################################################
+
+    # Figure out what to do with plink
+    if args.plink.endswith('.raw'):
+        raw_file = args.plink
+    else:
+        plink_root = plink.get_root_name(args.plink)
+        if os.path.exists(plink_root + '.raw'):
+            raw_file = plink_root + '.raw'
+        elif os.path.exists(plink_root + '.raw.gz'):
+            raw_file = plink_root + '.raw.gz'
+        else:
+            raw_file = None
+
+    # Create new plink recodeAD file if necessary
+    if not os.path.isfile(raw_file):
+        logme.log('recodeAD raw file does not exist, creating.')
+        raw_file = plink.recodeAD(args.plink)
+        logme.log('New recodeAD file created: {}'.format(raw_file))
+
+    # Build SNP list
+    if args.snps:
+        snplist = snps_from_bed(args.snps)
+        bedfile = args.snps
+    else:
+        logme.log('Generating exon level snp list')
+        snplist = snps.filter_snps_by_exon(snp_file=args.snpfile,
+                                           exon_file=args.exonfile)
+        logme.log('Exon level snp list complete')
+        bedfile = args.snpfile
+
+    ##########################################################################
+    #                        Run the primary function                        #
+    ##########################################################################
+
+    # Build arguments for function
+    run_args = {'infile': raw_file, 'snps': snplist}
+    if args.filter:
+        run_args['individuals'] = individuals
+        if args.split_name:
+            run_args['split_individual'] = args.split_name
+            run_args['name_index'] = args.split_index
+
+    # Loop through individuals
+    names = []
+    logme.log('Builing SNP list for every individual')
+    for ind in snps.get_het_snps_from_recodeAD(**run_args):
+        names.append(ind.name)
+        logme.log('Working on {}'.format(ind.name), 'debug')
+        outfile = ind.name + '_snps.bed'
+        if args.outdir:
+            outfile = os.path.join(args.outdir, outfile)
+        if args.gzip:
+            outfile = outfile + '.gz'
+
+        # Actually write the bed file
+        ind.save_bed(outfile, bedfile)
+
+    # Check for any missing names
+    if args.filter:
+        not_included = []
+        for ind in args.filter:
+            if ind not in names:
+                not_included.append(ind)
+        if not_included:
+            logme.log('The following individuals were not found in the ' +
+                      'plink file: {}'.format(', '.join(not_included)), 'warn')
+
+    # Done
+    return 0
+
+if __name__ == '__main__' and '__file__' in globals():
+    sys.exit(main())
