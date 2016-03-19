@@ -10,7 +10,7 @@ Create a bed file for each individual containing only exonic heterozygous snps.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-46-18 11:03
- Last modified: 2016-03-18 16:25
+ Last modified: 2016-03-18 17:22
 
    DESCRIPTION: This script provides a lot of flexibility in creating bed
                 files containing only exonic heterozygous SNPs.
@@ -171,21 +171,22 @@ def main(argv=None):
             raw_file = None
 
     # Create new plink recodeAD file if necessary
-    if not os.path.isfile(raw_file):
+    if not raw_file or not os.path.isfile(raw_file):
         logme.log('recodeAD raw file does not exist, creating.')
         raw_file = plink.recodeAD(args.plink)
         logme.log('New recodeAD file created: {}'.format(raw_file))
 
     # Build SNP list
     if args.snps:
-        snplist = snps_from_bed(args.snps)
+        logme.log('Reading snps from bed')
+        snplist = snps.snps_from_bed(args.snps)
         bedfile = args.snps
     else:
         logme.log('Generating exon level snp list')
         snplist = snps.filter_snps_by_exon(snp_file=args.snpfile,
                                            exon_file=args.exonfile)
-        logme.log('Exon level snp list complete')
         bedfile = args.snpfile
+    logme.log('Got all exon level snps')
 
     ##########################################################################
     #                        Run the primary function                        #
@@ -201,6 +202,7 @@ def main(argv=None):
 
     # Loop through individuals
     names = []
+    count = 0
     logme.log('Builing SNP list for every individual')
     for ind in snps.get_het_snps_from_recodeAD(**run_args):
         names.append(ind.name)
@@ -213,16 +215,19 @@ def main(argv=None):
 
         # Actually write the bed file
         ind.save_bed(outfile, bedfile)
+        count = count + 1
 
     # Check for any missing names
     if args.filter:
         not_included = []
-        for ind in args.filter:
+        for ind in individuals:
             if ind not in names:
                 not_included.append(ind)
         if not_included:
             logme.log('The following individuals were not found in the ' +
                       'plink file: {}'.format(', '.join(not_included)), 'warn')
+
+    logme.log('Completed {} individuals.\n'.format(count))
 
     # Done
     return 0
