@@ -8,7 +8,7 @@ Filter SNP lists by individual.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-36-14 12:03
- Last modified: 2016-03-18 16:00
+ Last modified: 2016-03-18 17:05
 
    DESCRIPTION:
 
@@ -72,9 +72,9 @@ class Individual(object):
                           'Try again with the bedfile option, or by\n' +
                           'running add_bed first.', level='error')
                 return -1
-        with open_zipped(outfile):
+        with open_zipped(outfile, 'w') as fout:
             for i in self.bed:
-                outfile.write(str(i))
+                fout.write(str(i))
         return 0
 
     def __init__(self, name, snplist):
@@ -208,16 +208,11 @@ def get_het_snps_from_recodeAD(infile, snps=None, individuals=None,
 
 def snps_from_bed(snp_file):
     """Return a frozenset of SNP names from a bed file."""
-    try:
-        from pybedtools import BedTool
-    except ImportError:
-        logme.log('pybedtools is not installed.\n' +
-                  'Please install and try again. You can get it from here:\n' +
-                  'https://github.com/daler/pybedtools',
-                  level='error')
-        return -1
-    bedfile = BedTool(snp_file)
-    return frozenset([i.name for i in bedfile])
+    snps = []
+    with open_zipped(snp_file) as fin:
+        for i in fin:
+            snps.append(i.split('\t')[3])
+    return frozenset(snps)
 
 
 def filter_snps_by_exon(snp_file, exon_file, outfile=None, outbed=False):
