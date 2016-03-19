@@ -7,7 +7,7 @@ Logging with timestamps and optional log files.
         AUTHOR: Michael D Dacre, mike.dacre@gmail.com
   ORGANIZATION: Stanford University
        CREATED: 2015-03-03 11:41
- Last modified: 2016-03-11 14:44
+ Last modified: 2016-03-18 17:00
 
    DESCRIPTION: Print a timestamped message to a logfile, STDERR, or STDOUT.
                 If STDERR or STDOUT are used, colored flags are added.
@@ -95,9 +95,9 @@ def log(message, level='info', logfile=None, also_write=None,
     min_level = min_level if min_level else MIN_LEVEL
 
     # Level checking, not used with logging objects
-    level_map = {'debug': 0, 'info': 1, 'warn': 2, 'error': 3, 'critical': 4,
-                 'd': 0, 'i': 1, 'w': 2, 'e': 3, 'c': 4,
-                 0: 0, 1: 1, 2: 2, 3: 3, 4: 4}
+    level_map = {'debug': 1, 'info': 2, 'warn': 3, 'error': 4, 'critical': 5,
+                 'd': 1, 'i': 2, 'w': 3, 'e': 4, 'c': 5,
+                 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
     try:
         level = level_map[level]
@@ -109,11 +109,11 @@ def log(message, level='info', logfile=None, also_write=None,
     except KeyError:
         raise Exception('Invalid min_level {}'.format(min_level))
 
-    if level > 2:
+    if level > 3:
         if also_write != -1 or also_write != 'stdout':
             also_write = 'stderr'
 
-    # Attempt to handle all file type
+    # Attempt to handle all file types
     if isinstance(logfile, (logging.RootLogger, logging.Logger)):
         _logit(message, logfile, level, color=False, min_level=min_level)
     elif isinstance(logfile, str):
@@ -178,8 +178,8 @@ def _logit(message, output, level, color=False, min_level=None):
     timestamp = "{0}.{1:<3}".format(now.strftime("%Y%m%d %H:%M:%S"),
                                     str(int(now.microsecond/1000)))
 
-    flag_map  = {0: 'DEBUG', 1: 'INFO', 2: 'WARNING', 3: 'ERROR',
-                 4: 'CRITICAL'}
+    flag_map  = {1: 'DEBUG', 2: 'INFO', 3: 'WARNING', 4: 'ERROR',
+                 5: 'CRITICAL'}
 
     flag = flag_map[level]
     flag_len = len('{0} | {1} --> '.format(timestamp, flag)) - 2
@@ -218,14 +218,18 @@ def _logit(message, output, level, color=False, min_level=None):
 
 def _color(flag):
     """Return the flag with correct color codes."""
-    if flag == 'INFO':
+    if flag == 'DEBUG':
+        return flag
+    elif flag == 'INFO':
         return BOLD + WHITE + flag + ENDC
-    if flag == 'WARNING':
+    elif flag == 'WARNING':
         return BOLD + YELLOW + flag + ENDC
-    if flag == 'ERROR':
+    elif flag == 'ERROR':
         return BOLD + RED + flag + ENDC
-    if flag == 'CRITICAL':
+    elif flag == 'CRITICAL':
         return BOLD + RED + flag + ENDC
+    else:
+        raise Exception('Invalid flag type')
 
 
 def _open_zipped(infile, mode='r'):
