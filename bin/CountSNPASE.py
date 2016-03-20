@@ -53,6 +53,9 @@ import os
 import textwrap         # Add text block wrapping properties
 from time import sleep  # Allow system pausing
 
+# US
+from ASEr.run import open_zipped
+
 ##########################
 # COMMAND-LINE ARGUMENTS #
 ##########################
@@ -124,7 +127,7 @@ args = parser.parse_args()
 # Convert a FASTA file to a dictionary where keys = headers and values are the sequence
 def fasta_to_dict(file):
 
-    fasta_file = open(file, "r")    # Open the file for reading
+    fasta_file = open_zipped(file, "r")    # Open the file for reading
     fasta_dict = {}
 
     for line in fasta_file:
@@ -313,7 +316,7 @@ if args.mode == 'multi':
 
     for i in range(1, args.jobs+1):
         suffix = str(i).zfill(4)
-        in_counts = open(prefix + 'SNP_COUNTS_' + suffix, 'r')
+        in_counts = open_zipped(prefix + 'SNP_COUNTS_' + suffix, 'r')
 
         # Parse the line to add it to the total file
         for line in in_counts:
@@ -352,7 +355,7 @@ if args.mode == 'multi':
         in_counts.close()
 
     # Write out the final concatenated file
-    final_counts = open(prefix + 'SNP_COUNTS.txt', 'w')
+    final_counts = open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
     final_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
 
     keys = sorted(tot_pos_counts.keys())
@@ -386,7 +389,7 @@ elif args.mode == 'single':
     # First read in the information on the SNPs that we're interested in.
     snps = {}    # Initialize a dictionary of SNP positions
 
-    snp_file = open(args.snps, 'r')
+    snp_file = open_zipped(args.snps, 'r')
     for line in snp_file:
         line = line.rstrip('\n')
         line_t = line.split('\t')
@@ -560,9 +563,9 @@ elif args.mode == 'single':
     # Open the output file and write the SNP counts to it
 
     if not args.suffix:
-        out_counts = open(prefix + 'SNP_COUNTS.txt', 'w')
+        out_counts = open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
     else:
-        out_counts = open(prefix + 'SNP_COUNTS_' + args.suffix, 'w')
+        out_counts = open_zipped(prefix + 'SNP_COUNTS_' + args.suffix, 'w')
 
     # Write header
     out_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
