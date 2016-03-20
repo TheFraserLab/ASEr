@@ -1,0 +1,36 @@
+##############################
+# HISTORY AND THINGS TO FIX  #
+##############################
+#
+# IMPORTANT!  - Check the changes in instructions in 2015-07-20.  Not updated in the pipeline instructions on github.
+#
+# 2015.03.16 - Initial script
+# - Check if reads input are in SAM or BAM format and act accordingly.
+#
+# 2015.03.18
+# - Transfered most of the functionality from the original PERL script
+# - Modified the pipeline so that it records strandedness of the SNPs
+# - Need to finish the concatenation and cleaning in the multiplex script
+#
+# 2015.03.19
+# - Finished fully functional script that outputs strandedness info.
+#
+# 2015.03.23
+# - Found bug that killed multiplex mode if you changed the program name
+#   fixed so that QSUB script will always call the correct name.
+# - Found another bug with the suffix code - must have introduced it
+#    during earlier revision. Fixed the args.suffix location.
+#
+# 2015.07.20
+# Change 1: Change in instructions. READ READ READ READ READ
+#    - For both CountSNPASE and GetGeneAse - only supply masked SNPs that are heterozygous sites for that sample AND that can contribute to gene level counts. i.e. Don’t include homozygous sites (even if they are masked) and don’t include sites that do not overlap any of your genes in the GetGeneAse step.
+#
+# Change 2: Change in the code:
+#   - If a read overlaps multiple sites, only choose among the sites that you supplied.  Do not consider any masked site that was not supplied by the user.
+#
+# Change 3: (minor bug)
+#   - Added conditional so that paired end reads are not considered twice if both ends overlap the same site.
+#
+# Change 4: Single-end only.
+#   - Added the bitwise flag for the single-end reads.
+ 
