@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 10:06
+ Last modified: 2016-03-21 14:23
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -81,6 +81,11 @@ SUM_READS\tSum of all reads assigned to the SNP
 #############
 # FUNCTIONS #
 #############
+
+
+def chrom_to_num(chrom):
+    """Strip leading 'chr' if it exists."""
+    return chrom[3:] if chrom.startswith('chr') else chrom
 
 
 def fasta_to_dict(file):
@@ -446,18 +451,19 @@ def main(argv=None):
     # SINGLE MODE #
     ###############
 
-    # If we're running in single mode (each job submitted by multiplex mode will be running in single mode)
+    # If we're running in single mode (each job submitted by multiplex mode
+    # will be running in single mode)
     elif args.mode == 'single':
 
         # First read in the information on the SNPs that we're interested in.
         snps = {}    # Initialize a dictionary of SNP positions
 
-        snp_file = run.open_zipped(args.snps, 'r')
+        snp_file = run.open_zipped(args.snps)
         for line in snp_file:
             line = line.rstrip('\n')
             line_t = line.split('\t')
 
-            pos = str(line_t[0]) + '|' + str(line_t[2])
+            pos = chrom_to_num(line_t[0]) + '|' + str(line_t[2])
             snps[pos] = line_t[3]
 
         snp_file.close()
@@ -466,15 +472,22 @@ def main(argv=None):
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
         in_sam = open(sam_file, 'r')
+
+        indel_skip = 0
+        nosnp_skip = 0
+        count      = 0
+        ryo_filter = 0
         for line in in_sam:
-            if re.match('^@', line):    # Write header lines if applicable
+            count += 1
+            if re.match('^@', line):    # Skip header lines if applicable
                 continue
 
             # Skip lines that overlap indels OR don't match Ns
-            line = line.rstrip('\n')
+            line = line.rstrip()
             line_t = line.split('\t')
 
             if 'D' in line_t[5] or 'I' in line_t[5]:
+                indel_skip += 1
                 continue
 
             # Split the tags to find the MD tag:
@@ -482,19 +495,23 @@ def main(argv=None):
             for i in tags:
                 if re.match('^MD:', i) and 'N' in i:
 
-                    # Remember that, for now, we're not allowing reads that overlap insertions/deletions.
+                    # Remember that, for now, we're not allowing reads that
+                    # overlap insertions/deletions.
 
-                    chr = line_t[2]
+                    chr = chrom_to_num(line_t[2])
                     pos = int(line_t[3])-1
                     read = line_t[9]
 
                     read_seq = ''
 
-                    # Need to determine whether it's forward or reverse complimented based on the bitwise
-                    # flag. This is based on the orientation bit '0b10000'  0 = forward, 1 = reverse, and
-                    # the mate pairing bits (0b1000000, first mate; 0b10000000, second mate). We're assuming
-                    # correct mapping such that FIRST MATES on the NEGATIVE STRAND are NEGATIVE, while
-                    # SECOND MATES on the NEGATIVE STRAND are POSITIVE.
+                    # Need to determine whether it's forward or reverse
+                    # complimented based on the bitwise flag. This is based on
+                    # the orientation bit '0b10000'  0 = forward, 1 = reverse,
+                    # and the mate pairing bits (0b1000000, first mate;
+                    # 0b10000000, second mate). We're assuming correct mapping
+                    # such that FIRST MATES on the NEGATIVE STRAND are
+                    # NEGATIVE, while SECOND MATES on the NEGATIVE STRAND are
+                    # POSITIVE.
 
                     if args.single is True:
                         flag = int(line_t[1])
@@ -506,16 +523,21 @@ def main(argv=None):
                     else:
                         flag = int(line_t[1])
                         if flag & 0b1000000:    # First mate
-                            if flag & 0b10000:    # If reverse, then negative strand
+                            if flag & 0b10000:  # If reverse, then negative strand
                                 orientation = '-'
                             else:
                                 orientation = '+'
 
-                        elif flag & 0b10000000:    # Second mate
-                            if flag & 0b10000:    # If reverse, then positive
+                        elif flag & 0b10000000:  # Second mate
+                            if flag & 0b10000:   # If reverse, then positive
                                 orientation = '+'
                             else:
                                 orientation = '-'
+                        else:
+                            sys.stderr.write(line)
+                            raise Exception('flag {} '.format(flag) +
+                                            'contains no mate data. Is your '
+                                            'data single end?')
 
                     # Parse the CIGAR string
                     cigar_types, cigar_vals = split_CIGAR(line_t[5])
@@ -525,8 +547,10 @@ def main(argv=None):
                     else:
                         MD_start = 0
 
-                    # Get the genomic positions corresponding to each base-pair of the read
-                    read_genomic_positions = CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, line_t[3])
+                    # Get the genomic positions corresponding to each base-pair
+                    # of the read
+                    read_genomic_positions = CIGAR_to_Genomic_Positions(
+                        cigar_types, cigar_vals, line_t[3])
 
                     # Get the tag data
                     MD_vals = i.split(':')
@@ -534,7 +558,8 @@ def main(argv=None):
 
                     genome_start = 0
 
-                    # The snp_pos dictionary will store the 1-base position => allele
+                    # The snp_pos dictionary will store the 1-base position
+                    # => allele
                     snp_pos = {}
                     for i in MD_split:
                         if re.match('\^', i):
@@ -556,16 +581,27 @@ def main(argv=None):
                         # RYO: START EDIT - Implemented Filter
                         posVal = str(line_t[2]) + '|' + str(i)
                         if posVal not in snps:
+                            nosnp_skip += 1
                             continue
                         # RYO: END EDIT - Implmented Filter
 
-                        snp = str(line_t[2]) + '|' + str(i) + '\t' + str(snp_pos[i]) + '\t' + orientation
+                        snp = (str(line_t[2]) + '|' + str(i) + '\t' +
+                               str(snp_pos[i]) + '\t' + orientation)
                         if str(line_t[0]) in potsnp_dict:
+                            # RYO EDIT HERE - added conditional so that pairs
+                            # of reads are not considered twice if they both
+                            # overlap the same snp.
                             if snp not in potsnp_dict[str(line_t[0])]:
-                                potsnp_dict[str(line_t[0])].append(snp)  # RYO EDIT HERE - added conditional so that pairs of reads are not considered twice if they both overlap the same snp.
+                                potsnp_dict[str(line_t[0])].append(snp)
+                            else:
+                                ryo_filter += 1
                         else:
                             potsnp_dict[str(line_t[0])] = []
                             potsnp_dict[str(line_t[0])].append(snp)
+        logme.log('Total reads: {}'.format(count), 'warn')
+        logme.log('Reads skipped for indels: {}'.format(indel_skip), 'warn')
+        logme.log('Reads not in SNPs: {}'.format(nosnp_skip), 'warn')
+        logme.log('Ryo filter: {}'.format(ryo_filter), 'warn')
 
         in_sam.close()
 
