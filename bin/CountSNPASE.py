@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 07:59
+ Last modified: 2016-03-21 10:06
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -193,7 +193,9 @@ def split_samfile(sam_file, splits, prefix='', path=''):
                     sam_split.close()
                     currjob += 1
                     suffix = '.split_sam_' + str(currjob).zfill(4)
-                    sam_split = open(prefix + sam_file + suffix, 'w')
+                    run_file = os.path.join(path, prefix + sam_name + suffix)
+                    sam_split = open(run_file, 'w')
+                    outfiles.append(run_file)
                     cnt = 0
                 else:
                     sam_split.write(line)
