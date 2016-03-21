@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-20 16:23
+ Last modified: 2016-03-20 22:35
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -150,6 +150,57 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
     pass
 
 
+def split_samfile(sam_file, splits, prefix='', path=None):
+    """Take a sam file and split it splits number of times.
+
+    :path:   Where to put the split files.
+    :prefix: A prefix for the outfile names
+    """
+
+    # Determine how many reads will be in each split sam file.
+    num_lines = os.popen('wc -l ' + sam_file + ' | awk \'{print $1}\'').read()
+    num_reads = int(int(num_lines)/splits) + 1
+
+    # Subset the SAM file into X number of jobs
+    cnt      = 0
+    currjob  = 1
+    suffix   = '.split_sam_' + str(currjob).zfill(4)
+    run_file = os.path.join(path, prefix + sam_file + suffix)
+
+    # Actually split the file
+    in_sam = open(sam_file, 'r')
+    with open(run_file, 'w') as sam_split:
+        for line in in_sam:
+            cnt += 1
+            if cnt < num_reads:
+                sam_split.write(line)
+            elif cnt == num_reads:
+                line_t = line.split('\t')
+
+                # Check if next line is mate-pair. If so, don't split across files.
+                line2 = next(in_sam)
+                line2_t = line2.split('\t')
+
+                if line_t[0] == line2_t[0]:
+                    sam_split.write(line)
+                    sam_split.write(line2)
+                    sam_split.close()
+                    currjob += 1
+                    suffix = '.split_sam_' + str(currjob).zfill(4)
+                    sam_split = open(prefix + sam_file + suffix, 'w')
+                    cnt = 0
+                else:
+                    sam_split.write(line)
+                    sam_split.close()
+                    currjob += 1
+                    suffix = '.split_sam_' + str(currjob).zfill(4)
+                    sam_split = open(prefix + sam_file + suffix, 'w')
+                    sam_split.write(line2)
+                    cnt = 0
+
+    in_sam.close()
+
+
 def main(argv=None):
     """Main script."""
 
@@ -229,57 +280,10 @@ def main(argv=None):
 
     # If we're running in multiplex mode
     if args.mode == 'multi':
-
-        # Determine how many reads will be in each split sam file.
-        num_lines = os.popen('wc -l ' + sam_file + ' | awk \'{print $1}\'').read()
-        num_reads = int(int(num_lines)/args.jobs) + 1
-
-        # Subset the SAM file into X number of jobs
-        cnt = 0
-        currjob = 1
-        suffix = '.split_sam_' + str(currjob).zfill(4)
-        run_file = os.path.join(sam_path, prefix + sam_file + suffix)
-
-        sam_split = open(run_file, 'w')
-
-        in_sam = open(sam_file, 'r')
-        for line in in_sam:
-            cnt += 1
-            if cnt < num_reads:
-                sam_split.write(line)
-            elif cnt == num_reads:
-                line_t = line.split('\t')
-
-                # Check if next line is mate-pair. If so, don't split across files.
-                line2 = next(in_sam)
-                line2_t = line2.split('\t')
-
-                if line_t[0] == line2_t[0]:
-                    sam_split.write(line)
-                    sam_split.write(line2)
-                    sam_split.close()
-                    currjob += 1
-                    suffix = '.split_sam_' + str(currjob).zfill(4)
-                    sam_split = open(prefix + sam_file + suffix, 'w')
-                    cnt = 0
-                else:
-                    sam_split.write(line)
-                    sam_split.close()
-                    currjob += 1
-                    suffix = '.split_sam_' + str(currjob).zfill(4)
-                    sam_split = open(prefix + sam_file + suffix, 'w')
-                    sam_split.write(line2)
-                    cnt = 0
-
-        in_sam.close()
-        sam_split.close()
+        split_samfile(sam_file, args.jobs, prefix)
 
         # Create PBS scripts and submit jobs to the cluster
-
-        if args.noclean is True:
-            subnoclean = '--noclean'
-        else:
-            subnoclean = ''
+        subnoclean = '--noclean' if args.noclean else ''
 
         for i in range(1, args.jobs+1):
             suffix = str(i).zfill(4)
@@ -326,6 +330,7 @@ def main(argv=None):
         # Once the jobs are done, concatenate all of the counts into one file.
         # Initialize dictionaries
 
+        logme.log('Jobs completed')
         os.system('rm *_done')    # Remove the 'done' files in case we want to run again.
 
         tot_pos_counts = {}
