@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-20 23:21
+ Last modified: 2016-03-21 00:28
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -20,20 +20,21 @@ Count number of reads overlapping each SNP in a sam/bam file.
 
 ============================================================================
 """
-import os               # Path manipulation
-import sys              # Access to simple command-line arguments
-import argparse         # Access to long command-line parsing
-import datetime         # Access to calendar/clock functions
-import re               # Access to REGEX splitting
-import math             # Access to math functions
-import random           # Access to random number generation
-import subprocess       # Access to direct command line in/out processing
-import textwrap         # Add text block wrapping properties
-from time import sleep  # Allow system pausing
+import os                 # Path manipulation
+import sys                # Access to simple command-line arguments
+import argparse           # Access to long command-line parsing
+import datetime           # Access to calendar/clock functions
+import re                 # Access to REGEX splitting
+import math               # Access to math functions
+import random             # Access to random number generation
+import subprocess         # Access to direct command line in/out processing
+import textwrap           # Add text block wrapping properties
+from time import sleep    # Allow system pausing
 
 # Us
-from ASEr import logme  # Logging functions
-from ASEr import run    # File handling functions
+from ASEr import logme    # Logging functions
+from ASEr import run      # File handling functions
+from ASEr import cluster  # Queue submission
 
 # Logging
 logme.MIN_LEVEL = 'info'  # Switch to 'debug' for more verbose, 'warn' for less
@@ -82,9 +83,11 @@ SUM_READS\tSum of all reads assigned to the SNP
 #############
 
 
-# Convert a FASTA file to a dictionary where keys = headers and values are the sequence
 def fasta_to_dict(file):
+    """Convert a FASTA file to a dictionary.
 
+    keys = headers and values = sequence.
+    """
     fasta_file = run.open_zipped(file, "r")    # Open the file for reading
     fasta_dict = {}
 
@@ -102,9 +105,8 @@ def fasta_to_dict(file):
     return fasta_dict
 
 
-# Split the CIGAR string and return two lists: types and values in order
 def split_CIGAR(cigar):
-
+    """Split the CIGAR string and return two lists: types and values in order."""
     cig_types_tmp = re.split('[0-9]', cigar)
     cig_vals_tmp = re.split('[MIDNSHP\=X]', cigar)
     cig_types = []
@@ -121,10 +123,12 @@ def split_CIGAR(cigar):
     return cig_types, cig_vals
 
 
-# Using the CIGAR string return a list of genomic coordinates corresponding to the
-# individual bases of the read to get SNP positions from the MD tag.
 def CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, pos):
+    """Use the CIGAR string to return a list of genomic coordinates.
 
+    Coordinates correspond to the individual bases of the read to get SNP
+    positions from the MD tag.
+    """
     # Initialize the list of genomic positions
     genomic_positions = []
     curr_pos = pos
@@ -157,7 +161,6 @@ def split_samfile(sam_file, splits, prefix='', path=None):
     :prefix:  A prefix for the outfile names.
     :returns: A tuple of job files.
     """
-
     # Determine how many reads will be in each split sam file.
     num_lines = os.popen('wc -l ' + sam_file + ' | awk \'{print $1}\'').read()
     num_reads = int(int(num_lines)/splits) + 1
@@ -165,9 +168,9 @@ def split_samfile(sam_file, splits, prefix='', path=None):
     # Subset the SAM file into X number of jobs
     cnt      = 0
     currjob  = 1
-    outfiles = []
     suffix   = '.split_sam_' + str(currjob).zfill(4)
     run_file = os.path.join(path, prefix + sam_file + suffix)
+    outfiles = [run_file]
 
     # Actually split the file
     with open(sam_file) as in_sam:
@@ -196,41 +199,43 @@ def split_samfile(sam_file, splits, prefix='', path=None):
                     sam_split.close()
                     currjob += 1
                     suffix = '.split_sam_' + str(currjob).zfill(4)
-                    sam_split = open(prefix + sam_file + suffix, 'w')
+                    run_file = os.path.join(path, prefix + sam_file + suffix)
+                    sam_split = open(run_file, 'w')
+                    outfiles.append(run_file)
                     sam_split.write(line2)
                     cnt = 0
         sam_split.close()
+    return tuple(outfiles)
 
 
 def main(argv=None):
     """Main script."""
-
     ##########################
     # COMMAND-LINE ARGUMENTS #
     ##########################
 
+    # Get myself
+    program_name = sys.argv[0]
+
     if not argv:
         argv = sys.argv[1:]
-
-    # Get myself
-    program_name = argv[0]
 
     parser  = argparse.ArgumentParser(
         description=__doc__,
         add_help=False, epilog=epilog, formatter_class=CustomFormatter)
 
     req = parser.add_argument_group('Required arguments')
-    req.add_argument('-m', '--mode', action='store',
+    req.add_argument('-m', '--mode',
                      help='Operation mode', choices=['single', 'multi'],
                      required=True, metavar='mode')
-    req.add_argument('-s', '--snps', action='store',
+    req.add_argument('-s', '--snps',
                      help='SNP BED file', required=True, metavar='<BED>')
-    req.add_argument('-r', '--reads', action='store',
+    req.add_argument('-r', '--reads',
                      help='Mapped reads file [sam or bam]',
                      required=True, metavar='<[S/B]AM>')
 
     uni = parser.add_argument_group('Universal optional arguments')
-    uni.add_argument('-p', '--prefix', action='store',
+    uni.add_argument('-p', '--prefix',
                      help='Prefix for temp files and output', default='TEST',
                      metavar='')
     uni.add_argument('-b', '--bam', action='store_true', dest='bam',
@@ -243,16 +248,22 @@ def main(argv=None):
                      help='show this help message and exit')
 
     mult = parser.add_argument_group('Multi(plex) mode arguments')
-    mult.add_argument('-j', '--jobs', action='store', type=int,
+    mult.add_argument('-j', '--jobs', type=int,
                       help='Divide into # of jobs', default=100, metavar='')
-    mult.add_argument('-w', '--walltime', action='store',
+    mult.add_argument('-w', '--walltime',
                       help='Walltime for each job', default='3:00:00',
                       metavar='')
-    mult.add_argument('-k', '--mem', action='store', dest='memory',
+    mult.add_argument('-k', '--mem', dest='memory',
                       help='Memory for each job', default='5000MB', metavar='')
+    mult.add_argument('-q', '--queue',
+                      help='Queue to submit jobs to', default='default',
+                      metavar='')
+    mult.add_argument('--cluster', help='Which cluster to use',
+                      choices=['torque', 'slurm'], default='torque',
+                      metavar='')
 
     single = parser.add_argument_group('Single mode arguments')
-    single.add_argument('-f', '--suffix', action='store',
+    single.add_argument('-f', '--suffix',
                         help='Suffix for multiplexing [set automatically]',
                         default='', metavar='')
 
@@ -270,6 +281,10 @@ def main(argv=None):
     if not run.is_exe(program_name):
         program_name = run.which(parser.prog)
 
+    # Set the cluster type if we are in multi mode
+    if args.mode == 'multi':
+        cluster.QUEUE = args.cluster
+
     # Check if the read file is sam or bam
     file_check = args.reads.split('.')
     file_check[-1] = file_check[-1].lower()
@@ -278,9 +293,13 @@ def main(argv=None):
     if file_check[-1] == 'bam' or args.bam is True:
         sam_file = '.'.join(args.reads.split('.')[:-1]) + '.sam'
         wasbam = True
-        logme.log('Converting BAM to SAM ...')
-        os.system('samtools view ' + args.reads + ' > ' + sam_file)
-        logme.log('Done')
+        if not os.path.isfile(sam_file):
+            logme.log('Converting BAM to SAM ...')
+            os.system('samtools view ' + args.reads + ' > ' + sam_file)
+            logme.log('Done')
+        else:
+            logme.log('BAM to SAM conversion already complete, using SAM ' +
+                      'file.')
 
     ##################
     # MULTIPLEX MODE #
@@ -289,36 +308,24 @@ def main(argv=None):
     # If we're running in multiplex mode
     if args.mode == 'multi':
         logme.log('Splitting sam file {} into {} files.'.format(sam_file,
-                                                                args.jobs)
-        split_samfile(sam_file, args.jobs, prefix)
+                                                                args.jobs))
+        reads_files = split_samfile(sam_file, args.jobs, prefix)
+        logme.log('Splitting complete.')
 
         # Create PBS scripts and submit jobs to the cluster
         subnoclean = '--noclean' if args.noclean else ''
-        for i in range(1, args.jobs+1):
-            suffix = str(i).zfill(4)
-            reads_file = prefix + sam_file + '.split_sam_' + suffix
+        job_ids = []
+        for reads_file in reads_files:
+            suffix = reads_file[-4:]
 
-            # qsub script modify as necessary
-            qsub_script = """\
-            # PBS -m n
-            # PBS -V
-            # PBS -d ./
-            # PBS -N """ + prefix + suffix + """
-            # PBS -l nodes=1:ppn=1
-            # PBS -l walltime=""" + args.walltime + """
-            # PBS -l mem=""" + args.memory + """
-            # PBS -e """ + prefix + suffix + """_err.txt
-            # PBS -o """ + prefix + suffix + """_out.txt
-            python2 """ + prgram_name + """ --mode single --snps """ + args.snps + """ --reads """ + \
-                reads_file + """ --suffix """ + suffix + """ --prefix """ + args.prefix + """
-            exit 0
-            """
-            qsub = open('qsub.txt', 'w')
-            qsub.write(textwrap.dedent(qsub_script))
-            qsub.close()
+            command = ("python2 " + parser.prog + " --mode single --snps " +
+                       args.snps + " --reads " + reads_file + " --suffix " +
+                       suffix + " --prefix " + args.prefix)
 
-            # Submit jobs to queue
-            os.system('qsub qsub.txt')
+            job_ids.append(cluster.submit(command, name=prefix + suffix,
+                                          time=args.walltime, cores=1,
+                                          mem=args.memory,
+                                          partition=args.queue))
             sleep(2)    # Pause for two seconds to make sure job is properly submitted
 
         # Now wait and check for all jobs to complete every so long
