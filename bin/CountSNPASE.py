@@ -30,6 +30,8 @@ import random             # Access to random number generation
 import subprocess         # Access to direct command line in/out processing
 import textwrap           # Add text block wrapping properties
 from time import sleep    # Allow system pausing
+from pysam import Samfile
+from os.path import basename
 
 # Us
 from ASEr import logme    # Logging functions
@@ -145,6 +147,20 @@ def CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, pos):
             curr_pos = int(curr_pos) + int(cigar_vals[i])
     return genomic_positions
 
+def count_reads(samfilename):
+    """Return the number of reads in a samfile
+
+    Use built-in counts if possible, but fall back to looping through otherwise
+    """
+    sf = Samfile(samfilename)
+    try:
+        return sf.mapped
+    except ValueError:
+        num_reads = 0
+        for num_reads, _ in enumerate(sf):
+            pass
+    return num_reads
+
 
 class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
                       argparse.RawDescriptionHelpFormatter):
@@ -154,7 +170,7 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
     pass
 
 
-def split_samfile(sam_file, splits, prefix='', path=''):
+def split_samfile(sam_file, splits, prefix='', path='', wasbam=True):
     """Take a sam file and split it splits number of times.
 
     :path:    Where to put the split files.
@@ -162,7 +178,7 @@ def split_samfile(sam_file, splits, prefix='', path=''):
     :returns: A tuple of job files.
     """
     # Determine how many reads will be in each split sam file.
-    num_lines = os.popen('wc -l ' + sam_file + ' | awk \'{print $1}\'').read()
+    num_lines = count_reads(sam_file)
     num_reads = int(int(num_lines)/splits) + 1
 
     # Subset the SAM file into X number of jobs
@@ -174,37 +190,35 @@ def split_samfile(sam_file, splits, prefix='', path=''):
     outfiles = [run_file]
 
     # Actually split the file
-    with open(sam_file) as in_sam:
-        sam_split = open(run_file, 'w')
+    with Samfile(sam_file) as in_sam:
+        sam_split = Samfile(prefix + basename(sam_file) + suffix,
+                'wb' if wasbam else 'w',
+                template=in_sam)
         for line in in_sam:
             cnt += 1
             if cnt < num_reads:
                 sam_split.write(line)
             elif cnt == num_reads:
-                line_t = line.split('\t')
-
                 # Check if next line is mate-pair. If so, don't split across files.
                 line2 = next(in_sam)
-                line2_t = line2.split('\t')
+                curr_job += 1
+                suffix = '.split_sam_' + str(currjob).zfill(4)
+                new_sam = Samfile(prefix + basename(sam_file) + suffix,
+                        'wb' if wasbam else 'w',
+                        template=in_sam,
+                        )
 
-                if line_t[0] == line2_t[0]:
+                if line.qname == line2.qname:
                     sam_split.write(line)
                     sam_split.write(line2)
                     sam_split.close()
-                    currjob += 1
-                    suffix = '.split_sam_' + str(currjob).zfill(4)
-                    sam_split = open(prefix + sam_file + suffix, 'w')
                     cnt = 0
                 else:
                     sam_split.write(line)
                     sam_split.close()
-                    currjob += 1
-                    suffix = '.split_sam_' + str(currjob).zfill(4)
-                    run_file = os.path.join(path, prefix + sam_name + suffix)
-                    sam_split = open(run_file, 'w')
-                    outfiles.append(run_file)
-                    sam_split.write(line2)
+                    new_sam.write(line2)
                     cnt = 0
+                sam_split = new_sam
         sam_split.close()
     return tuple(outfiles)
 
@@ -294,6 +308,7 @@ def main(argv=None):
     # Initialize variables
     prefix = args.prefix + '_'
     wasbam = False
+    mode = 'r'
 
     # Make sure we can run ourselves
     if not run.is_exe(program_name):
@@ -309,15 +324,8 @@ def main(argv=None):
     sam_path, sam_file = os.path.split(args.reads)
 
     if file_check[-1] == 'bam' or args.bam is True:
-        sam_file = '.'.join(args.reads.split('.')[:-1]) + '.sam'
         wasbam = True
-        if not os.path.isfile(sam_file):
-            logme.log('Converting BAM to SAM ...')
-            os.system('samtools view ' + args.reads + ' > ' + sam_file)
-            logme.log('Done')
-        else:
-            logme.log('BAM to SAM conversion already complete, using SAM ' +
-                      'file.')
+        mode = 'rb'
 
     ##################
     # MULTIPLEX MODE #
@@ -327,7 +335,7 @@ def main(argv=None):
     if args.mode == 'multi':
         logme.log('Splitting sam file {} into {} files.'.format(sam_file,
                                                                 args.jobs))
-        reads_files = split_samfile(sam_file, args.jobs, prefix)
+        reads_files = split_samfile(sam_file, args.jobs, prefix, wasbam)
         logme.log('Splitting complete.')
 
         # Create PBS scripts and submit jobs to the cluster
@@ -364,7 +372,7 @@ def main(argv=None):
             sleep(10)
 
         logme.log('Jobs completed.')
-        os.system('rm *_done')    # Remove 'done' files in case we want to run again.
+        os.system('rm {prefix}*_done'.format(prefix=prefix))    # Remove 'done' files in case we want to run again.
 
         # Once the jobs are done, concatenate all of the counts into one file.
         # Initialize dictionaries
@@ -436,9 +444,7 @@ def main(argv=None):
 
         # Clean up intermediate files.
         if args.noclean is False:
-            os.system('rm *err.txt *out.txt *COUNTS_* *split_sam_* *.qsub')
-            if wasbam is True:
-                os.system('rm ' + sam_file)
+            os.system('rm {prefix}*err.txt {prefix}*out.txt {prefix}*COUNTS_* {prefix}*split_sam_* *.qsub'.format(prefix=prefix))
 
     ###############
     # SINGLE MODE #
@@ -463,60 +469,53 @@ def main(argv=None):
         potsnp_dict = {}    # This is the dictionary of potential SNPs for each read.
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
-        in_sam = open(sam_file, 'r')
+        num_reads = count_reads(sam_file)
+        in_sam = Samfile(sam_file)
         for line in in_sam:
-            if re.match('^@', line):    # Write header lines if applicable
-                continue
-
             # Skip lines that overlap indels OR don't match Ns
-            line = line.rstrip('\n')
-            line_t = line.split('\t')
+            cigarstring = line.cigarstring
 
-            if 'D' in line_t[5] or 'I' in line_t[5]:
+            if 'D' in cigarstring or 'I' in cigarstring:
                 continue
 
             # Split the tags to find the MD tag:
-            tags = line_t[11].split(' ')
-            for i in tags:
-                if re.match('^MD:', i) and 'N' in i:
-
+            tags = line.tags
+            for tagname, tagval in tags:
+                if tagname == 'MD' and 'N' in tagval:
                     # Remember that, for now, we're not allowing reads that overlap insertions/deletions.
 
-                    chr = line_t[2]
-                    pos = int(line_t[3])-1
-                    read = line_t[9]
+                    chr = references[line.rname]
+                    pos = line.pos
+                    read = line.seq
+                    flag = line.flag
 
                     read_seq = ''
 
-                    # Need to determine whether it's forward or reverse complimented based on the bitwise
-                    # flag. This is based on the orientation bit '0b10000'  0 = forward, 1 = reverse, and
-                    # the mate pairing bits (0b1000000, first mate; 0b10000000, second mate). We're assuming
+                    # We're assuming
                     # correct mapping such that FIRST MATES on the NEGATIVE STRAND are NEGATIVE, while
                     # SECOND MATES on the NEGATIVE STRAND are POSITIVE.
 
                     if args.single is True:
-                        flag = int(line_t[1])
-                        if flag & 0b10000:  # RYO UPDATED HERE
+                        if flag.is_reverse:  # RYO UPDATED HERE
                             orientation = '-'
                         else:
                             orientation = '+'
 
                     else:
-                        flag = int(line_t[1])
-                        if flag & 0b1000000:    # First mate
-                            if flag & 0b10000:    # If reverse, then negative strand
+                        if flag.is_read1:    # First mate
+                            if flag.is_reverse:    # If reverse, then negative strand
                                 orientation = '-'
                             else:
                                 orientation = '+'
 
-                        elif flag & 0b10000000:    # Second mate
-                            if flag & 0b10000:    # If reverse, then positive
+                        elif flag.is_read2:    # Second mate
+                            if flag.is_reverse:    # If reverse, then positive
                                 orientation = '+'
                             else:
                                 orientation = '-'
 
                     # Parse the CIGAR string
-                    cigar_types, cigar_vals = split_CIGAR(line_t[5])
+                    cigar_types, cigar_vals = split_CIGAR(cigarstring)
 
                     if cigar_types[0] == 'S':
                         MD_start = int(cigar_vals[0])
@@ -524,11 +523,10 @@ def main(argv=None):
                         MD_start = 0
 
                     # Get the genomic positions corresponding to each base-pair of the read
-                    read_genomic_positions = CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, line_t[3])
+                    read_genomic_positions = CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, line.pos+1)
 
                     # Get the tag data
-                    MD_vals = i.split(':')
-                    MD_split = re.findall('\d+|\D+', MD_vals[2])
+                    MD_split = re.findall('\d+|\D+', tagval)
 
                     genome_start = 0
 
@@ -552,18 +550,19 @@ def main(argv=None):
                     for i in snp_pos:
 
                         # RYO: START EDIT - Implemented Filter
-                        posVal = str(line_t[2]) + '|' + str(i)
+                        posVal = line.rname + '|' + str(i)
                         if posVal not in snps:
                             continue
                         # RYO: END EDIT - Implmented Filter
 
-                        snp = str(line_t[2]) + '|' + str(i) + '\t' + str(snp_pos[i]) + '\t' + orientation
-                        if str(line_t[0]) in potsnp_dict:
-                            if snp not in potsnp_dict[str(line_t[0])]:
-                                potsnp_dict[str(line_t[0])].append(snp)  # RYO EDIT HERE - added conditional so that pairs of reads are not considered twice if they both overlap the same snp.
+                        snp = line.rname + '|' + str(i) + '\t' + str(snp_pos[i]) + '\t' + orientation
+                        snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(chr=chr, i=i, snp_pos=snp_pos[i], orientation=orientation)
+                        if line.qname in potsnp_dict:
+                            if snp not in potsnp_dict[line.qname]:
+                                potsnp_dict[line.qname].append(snp)  # RYO EDIT HERE - added conditional so that pairs of reads are not considered twice if they both overlap the same snp.
                         else:
-                            potsnp_dict[str(line_t[0])] = []
-                            potsnp_dict[str(line_t[0])].append(snp)
+                            potsnp_dict[line.qname] = []
+                            potsnp_dict[line.qname].append(snp)
 
         in_sam.close()
 
@@ -632,8 +631,7 @@ def main(argv=None):
         out_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
 
         # Sort SNP positions and write them
-        keys = list(pos_counts.keys())
-        keys.sort()
+        keys = sorted(pos_counts.keys())
 
         for key in keys:
             pos = key.split('|')
