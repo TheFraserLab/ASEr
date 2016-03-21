@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-17 12:20
+ Last modified: 2016-03-20 23:13
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -67,6 +67,11 @@ def run_cmd(cmd, args):
     return code, out, err
 
 
+def is_exe(fpath):
+    """Return True is fpath is executable."""
+    return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+
 def which(program):
     """Replicate the UNIX which command.
 
@@ -76,10 +81,6 @@ def which(program):
     :program: Name of executable to test.
     :returns: Path to the program or None on failure.
     """
-    def is_exe(fpath):
-        """Return True is fpath is executable."""
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
     fpath, fname = os.path.split(program)
     if fpath:
         if is_exe(program):
