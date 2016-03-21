@@ -257,6 +257,7 @@ if args.mode == 'multi':
         sleep(2)    # Pause for two seconds to make sure job is properly submitted
 
     # Now wait and check for all jobs to complete every so long
+    sys.stderr.write('Waiting for jobs to finish...\n')
     done = False
     while done is False:
         tot_done = 0
@@ -270,6 +271,8 @@ if args.mode == 'multi':
             done = True
 
         sleep(10)
+
+    sys.stderr.write('All jobs complete\n')
 
     # Once the jobs are done, concatenate all of the counts into one file.
     # Initialize dictionaries
