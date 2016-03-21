@@ -8,7 +8,7 @@ Submit jobs to either slurm or torque.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-21 00:12
+ Last modified: 2016-03-21 01:00
 
    DESCRIPTION: Allows simple job submission.
 
@@ -43,14 +43,14 @@ def submit_file(script_file, dependency=None):
         return int(_sub(['qsub', script_file]).decode().rstrip().split('.')[0])
 
 
-def make_job_file(command, name, time, cores, mem=None, partition='normal',
+def make_job_file(command, name, time, cores, mem=None, partition=None,
                   modules=[], path=None):
     """Make a job file compatible with sbatch to run command.
 
     Note: Only requests one node.
     :command:   The command to execute.
     :name:      The name of the job.
-    :time:      The time to run for in D-HH:MM:SS.
+    :time:      The time to run for in HH:MM:SS.
     :cores:     How many cores to run on.
     :mem:       Memory to use in MB.
     :partition: Partition to run on, default 'normal'.
@@ -64,14 +64,15 @@ def make_job_file(command, name, time, cores, mem=None, partition='normal',
         scrpt = os.path.join(usedir, '{}.sbatch'.format(name))
         with open(scrpt, 'w') as outfile:
             outfile.write('#!/bin/bash\n')
-            outfile.write('#SBATCH -p {}\n'.format(partition))
+            if partition:
+                outfile.write('#SBATCH -p {}\n'.format(partition))
             outfile.write('#SBATCH --ntasks 1\n')
             outfile.write('#SBATCH --cpus-per-task {}\n'.format(cores))
             outfile.write('#SBATCH --time={}\n'.format(time))
             if mem:
                 outfile.write('#SBATCH --mem={}\n'.format(mem))
-            outfile.write('#SBATCH -o {}.o.%j\n'.format(name))
-            outfile.write('#SBATCH -e {}.e.%j\n'.format(name))
+            outfile.write('#SBATCH -o {}.out\n'.format(name))
+            outfile.write('#SBATCH -e {}.err\n'.format(name))
             outfile.write('cd {}\n'.format(usedir))
             outfile.write('srun bash {}.script\n'.format(
                 os.path.join(usedir, name)))
@@ -98,13 +99,14 @@ def make_job_file(command, name, time, cores, mem=None, partition='normal',
         scrpt = os.path.join(usedir, '{}.qsub'.format(name))
         with open(scrpt, 'w') as outfile:
             outfile.write('#!/bin/bash\n')
-            outfile.write('#PBS -q {}\n'.format(partition))
+            if partition:
+                outfile.write('#PBS -q {}\n'.format(partition))
             outfile.write('#PBS -l nodes=1:ppn={}\n'.format(cores))
-            outfile.write('#PBS --walltime={}\n'.format(time))
+            outfile.write('#PBS -l walltime={}\n'.format(time))
             if mem:
                 outfile.write('#PBS mem={}MB\n'.format(mem))
-            outfile.write('#PBS -o {}.o.%j\n'.format(name))
-            outfile.write('#PBS -e {}.e.%j\n\n'.format(name))
+            outfile.write('#PBS -o {}.out\n'.format(name))
+            outfile.write('#PBS -e {}.err\n\n'.format(name))
             for module in modules:
                 outfile.write('module load {}\n'.format(module))
             outfile.write('cd {}\n'.format(usedir))
@@ -123,7 +125,7 @@ def submit(command, name, time, cores, mem=None, partition='normal',
     Note: Only requests one node.
     :command:   The command to execute.
     :name:      The name of the job.
-    :time:      The time to run for in D-HH:MM:SS.
+    :time:      The time to run for in HH:MM:SS.
     :cores:     How many cores to run on.
     :mem:       Memory to use in MB.
     :partition: Partition to run on, default 'normal'.

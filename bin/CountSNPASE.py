@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 00:28
+ Last modified: 2016-03-21 01:02
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -154,7 +154,7 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
     pass
 
 
-def split_samfile(sam_file, splits, prefix='', path=None):
+def split_samfile(sam_file, splits, prefix='', path=''):
     """Take a sam file and split it splits number of times.
 
     :path:    Where to put the split files.
@@ -169,7 +169,8 @@ def split_samfile(sam_file, splits, prefix='', path=None):
     cnt      = 0
     currjob  = 1
     suffix   = '.split_sam_' + str(currjob).zfill(4)
-    run_file = os.path.join(path, prefix + sam_file + suffix)
+    sam_path, sam_name = os.path.split(sam_file)
+    run_file = os.path.join(path, prefix + sam_name + suffix)
     outfiles = [run_file]
 
     # Actually split the file
@@ -199,7 +200,7 @@ def split_samfile(sam_file, splits, prefix='', path=None):
                     sam_split.close()
                     currjob += 1
                     suffix = '.split_sam_' + str(currjob).zfill(4)
-                    run_file = os.path.join(path, prefix + sam_file + suffix)
+                    run_file = os.path.join(path, prefix + sam_name + suffix)
                     sam_split = open(run_file, 'w')
                     outfiles.append(run_file)
                     sam_split.write(line2)
@@ -255,8 +256,8 @@ def main(argv=None):
                       metavar='')
     mult.add_argument('-k', '--mem', dest='memory',
                       help='Memory for each job', default='5000MB', metavar='')
-    mult.add_argument('-q', '--queue',
-                      help='Queue to submit jobs to', default='default',
+    mult.add_argument('--queue',
+                      help='Queue to submit jobs to', default='batch',
                       metavar='')
     mult.add_argument('--cluster', help='Which cluster to use',
                       choices=['torque', 'slurm'], default='torque',
@@ -267,11 +268,28 @@ def main(argv=None):
                         help='Suffix for multiplexing [set automatically]',
                         default='', metavar='')
 
+    logging = parser.add_argument_group('Logging options')
+    logging.add_argument('-q', '--quiet', action='store_true',
+                         help="Quiet mode, only prints warnings.")
+    logging.add_argument('-v', '--verbose', action='store_true',
+                         help="Verbose mode, prints debug info too.")
+    logging.add_argument('--logfile',
+                         help='Logfile to write messages too, default is ' +
+                         'STDERR')
+
     args = parser.parse_args()
 
     ###########################################################################
     #                            File Preparations                            #
     ###########################################################################
+
+    # Take care of logging
+    if args.logfile:
+        logme.LOGFILE = args.logfile
+    if args.quiet:
+        logme.MIN_LEVEL = 'warn'
+    elif args.verbose:
+        logme.MIN_LEVEL = 'debug'
 
     # Initialize variables
     prefix = args.prefix + '_'
@@ -315,10 +333,11 @@ def main(argv=None):
         # Create PBS scripts and submit jobs to the cluster
         subnoclean = '--noclean' if args.noclean else ''
         job_ids = []
+        logme.log('Submitting split files to cluster')
         for reads_file in reads_files:
             suffix = reads_file[-4:]
 
-            command = ("python2 " + parser.prog + " --mode single --snps " +
+            command = ("python2 " + program_name + " --mode single --snps " +
                        args.snps + " --reads " + reads_file + " --suffix " +
                        suffix + " --prefix " + args.prefix)
 
@@ -329,6 +348,7 @@ def main(argv=None):
             sleep(2)    # Pause for two seconds to make sure job is properly submitted
 
         # Now wait and check for all jobs to complete every so long
+        logme.log('Submission done, waiting for jobs to complete.')
         done = False
         while done is False:
             tot_done = 0
@@ -343,11 +363,11 @@ def main(argv=None):
 
             sleep(10)
 
+        logme.log('Jobs completed.')
+        os.system('rm *_done')    # Remove 'done' files in case we want to run again.
+
         # Once the jobs are done, concatenate all of the counts into one file.
         # Initialize dictionaries
-
-        logme.log('Jobs completed')
-        os.system('rm *_done')    # Remove the 'done' files in case we want to run again.
 
         tot_pos_counts = {}
         tot_neg_counts = {}
@@ -416,7 +436,7 @@ def main(argv=None):
 
         # Clean up intermediate files.
         if args.noclean is False:
-            os.system('rm *err.txt *out.txt *COUNTS_* *split_sam_* qsub.txt')
+            os.system('rm *err.txt *out.txt *COUNTS_* *split_sam_* *.qsub')
             if wasbam is True:
                 os.system('rm ' + sam_file)
 
