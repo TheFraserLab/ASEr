@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-20 22:35
+ Last modified: 2016-03-20 23:21
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -32,8 +32,8 @@ import textwrap         # Add text block wrapping properties
 from time import sleep  # Allow system pausing
 
 # Us
-from ASEr import logme  # Loggin functions
-from ASEr.run import open_zipped  # Allows us to open a file gzipped or not.
+from ASEr import logme  # Logging functions
+from ASEr import run    # File handling functions
 
 # Logging
 logme.MIN_LEVEL = 'info'  # Switch to 'debug' for more verbose, 'warn' for less
@@ -85,7 +85,7 @@ SUM_READS\tSum of all reads assigned to the SNP
 # Convert a FASTA file to a dictionary where keys = headers and values are the sequence
 def fasta_to_dict(file):
 
-    fasta_file = open_zipped(file, "r")    # Open the file for reading
+    fasta_file = run.open_zipped(file, "r")    # Open the file for reading
     fasta_dict = {}
 
     for line in fasta_file:
@@ -153,8 +153,9 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
 def split_samfile(sam_file, splits, prefix='', path=None):
     """Take a sam file and split it splits number of times.
 
-    :path:   Where to put the split files.
-    :prefix: A prefix for the outfile names
+    :path:    Where to put the split files.
+    :prefix:  A prefix for the outfile names.
+    :returns: A tuple of job files.
     """
 
     # Determine how many reads will be in each split sam file.
@@ -164,12 +165,13 @@ def split_samfile(sam_file, splits, prefix='', path=None):
     # Subset the SAM file into X number of jobs
     cnt      = 0
     currjob  = 1
+    outfiles = []
     suffix   = '.split_sam_' + str(currjob).zfill(4)
     run_file = os.path.join(path, prefix + sam_file + suffix)
 
     # Actually split the file
-    in_sam = open(sam_file, 'r')
-    with open(run_file, 'w') as sam_split:
+    with open(sam_file) as in_sam:
+        sam_split = open(run_file, 'w')
         for line in in_sam:
             cnt += 1
             if cnt < num_reads:
@@ -197,8 +199,7 @@ def split_samfile(sam_file, splits, prefix='', path=None):
                     sam_split = open(prefix + sam_file + suffix, 'w')
                     sam_split.write(line2)
                     cnt = 0
-
-    in_sam.close()
+        sam_split.close()
 
 
 def main(argv=None):
@@ -210,6 +211,9 @@ def main(argv=None):
 
     if not argv:
         argv = sys.argv[1:]
+
+    # Get myself
+    program_name = argv[0]
 
     parser  = argparse.ArgumentParser(
         description=__doc__,
@@ -262,6 +266,10 @@ def main(argv=None):
     prefix = args.prefix + '_'
     wasbam = False
 
+    # Make sure we can run ourselves
+    if not run.is_exe(program_name):
+        program_name = run.which(parser.prog)
+
     # Check if the read file is sam or bam
     file_check = args.reads.split('.')
     file_check[-1] = file_check[-1].lower()
@@ -280,11 +288,12 @@ def main(argv=None):
 
     # If we're running in multiplex mode
     if args.mode == 'multi':
+        logme.log('Splitting sam file {} into {} files.'.format(sam_file,
+                                                                args.jobs)
         split_samfile(sam_file, args.jobs, prefix)
 
         # Create PBS scripts and submit jobs to the cluster
         subnoclean = '--noclean' if args.noclean else ''
-
         for i in range(1, args.jobs+1):
             suffix = str(i).zfill(4)
             reads_file = prefix + sam_file + '.split_sam_' + suffix
@@ -300,7 +309,7 @@ def main(argv=None):
             # PBS -l mem=""" + args.memory + """
             # PBS -e """ + prefix + suffix + """_err.txt
             # PBS -o """ + prefix + suffix + """_out.txt
-            python2 """ + parser.prog + """ --mode single --snps """ + args.snps + """ --reads """ + \
+            python2 """ + prgram_name + """ --mode single --snps """ + args.snps + """ --reads """ + \
                 reads_file + """ --suffix """ + suffix + """ --prefix """ + args.prefix + """
             exit 0
             """
@@ -341,7 +350,7 @@ def main(argv=None):
 
         for i in range(1, args.jobs+1):
             suffix = str(i).zfill(4)
-            in_counts = open_zipped(prefix + 'SNP_COUNTS_' + suffix, 'r')
+            in_counts = run.open_zipped(prefix + 'SNP_COUNTS_' + suffix, 'r')
 
             # Parse the line to add it to the total file
             for line in in_counts:
@@ -380,7 +389,7 @@ def main(argv=None):
             in_counts.close()
 
         # Write out the final concatenated file
-        final_counts = open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
+        final_counts = run.open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
         final_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
 
         keys = sorted(tot_pos_counts.keys())
@@ -414,7 +423,7 @@ def main(argv=None):
         # First read in the information on the SNPs that we're interested in.
         snps = {}    # Initialize a dictionary of SNP positions
 
-        snp_file = open_zipped(args.snps, 'r')
+        snp_file = run.open_zipped(args.snps, 'r')
         for line in snp_file:
             line = line.rstrip('\n')
             line_t = line.split('\t')
@@ -588,9 +597,9 @@ def main(argv=None):
         # Open the output file and write the SNP counts to it
 
         if not args.suffix:
-            out_counts = open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
+            out_counts = run.open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
         else:
-            out_counts = open_zipped(prefix + 'SNP_COUNTS_' + args.suffix, 'w')
+            out_counts = run.open_zipped(prefix + 'SNP_COUNTS_' + args.suffix, 'w')
 
         # Write header
         out_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
