@@ -8,7 +8,7 @@ Submit jobs to either slurm or torque.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-21 10:10
+ Last modified: 2016-03-22 16:57
 
    DESCRIPTION: Allows simple job submission.
 
@@ -17,11 +17,56 @@ Submit jobs to either slurm or torque.
 import os
 from subprocess import check_output as _sub
 
+# Us
+from ASEr import run
+
 #########################
 #  Which system to use  #
 #########################
 
 QUEUE = 'torque'  # Default is torque, change to 'slurm' as needed.
+
+
+def get_cluster_environment():
+    """Detect the local cluster environment and set QUEUE globally.
+
+    Uses which to search for sbatch first, then qsub. If neither is found,
+    QUEUE is set to local.
+
+    :returns: QUEUE variable ('torque', 'slurm', or 'local')
+    """
+    global QUEUE
+    if run.which('sbatch'):
+        QUEUE = 'slurm'
+    elif run.which('qsub'):
+        QUEUE = 'torque'
+    else:
+        QUEUE = 'local'
+    return QUEUE
+
+
+#########################
+#  Submissions scripts  #
+#########################
+
+
+def submit(command, name, time, cores, mem=None, partition='normal',
+           modules=[], path=None):
+    """Create a wrapped script and submit the job.
+
+    Note: Only requests one node.
+    :command:   The command to execute.
+    :name:      The name of the job.
+    :time:      The time to run for in HH:MM:SS.
+    :cores:     How many cores to run on.
+    :mem:       Memory to use in MB.
+    :partition: Partition to run on, default 'normal'.
+    :modules:   Modules to load with the 'module load' command.
+    :path:      Where to create the script, if None, current dir used.
+    :returns:   The absolute path of the submission script.
+    """
+    return submit_file(make_job_file(command, name, time, cores,
+                                     mem, partition, modules, path))
 
 
 def submit_file(script_file, dependency=None):
@@ -41,6 +86,7 @@ def submit_file(script_file, dependency=None):
         return int(_sub(['sbatch'] + args).decode().rstrip().split(' ')[-1])
     elif QUEUE == 'torque':
         return int(_sub(['qsub', script_file]).decode().rstrip().split('.')[0])
+
 
 
 def make_job_file(command, name, time, cores, mem=None, partition=None,
@@ -116,22 +162,3 @@ def make_job_file(command, name, time, cores, mem=None, partition=None,
             outfile.write('echo Done\n')
             outfile.write("date +'%d-%H:%M:%S'\n")
     return scrpt
-
-
-def submit(command, name, time, cores, mem=None, partition='normal',
-           modules=[], path=None):
-    """Create a wrapped script and submit the job.
-
-    Note: Only requests one node.
-    :command:   The command to execute.
-    :name:      The name of the job.
-    :time:      The time to run for in HH:MM:SS.
-    :cores:     How many cores to run on.
-    :mem:       Memory to use in MB.
-    :partition: Partition to run on, default 'normal'.
-    :modules:   Modules to load with the 'module load' command.
-    :path:      Where to create the script, if None, current dir used.
-    :returns:   The absolute path of the submission script.
-    """
-    return submit_file(make_job_file(command, name, time, cores,
-                                     mem, partition, modules, path))
