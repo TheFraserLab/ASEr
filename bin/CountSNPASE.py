@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 14:23
+ Last modified: 2016-03-21 16:08
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -35,6 +35,7 @@ from time import sleep    # Allow system pausing
 from ASEr import logme    # Logging functions
 from ASEr import run      # File handling functions
 from ASEr import cluster  # Queue submission
+from ASEr.snps import chrom_to_num  # Chromosome number standardization
 
 # Logging
 logme.MIN_LEVEL = 'info'  # Switch to 'debug' for more verbose, 'warn' for less
@@ -82,10 +83,6 @@ SUM_READS\tSum of all reads assigned to the SNP
 # FUNCTIONS #
 #############
 
-
-def chrom_to_num(chrom):
-    """Strip leading 'chr' if it exists."""
-    return chrom[3:] if chrom.startswith('chr') else chrom
 
 
 def fasta_to_dict(file):
@@ -344,9 +341,10 @@ def main(argv=None):
         for reads_file in reads_files:
             suffix = reads_file[-4:]
 
+            single_end = ' --single' if args.single else ''
             command = ("python2 " + program_name + " --mode single --snps " +
                        args.snps + " --reads " + reads_file + " --suffix " +
-                       suffix + " --prefix " + args.prefix)
+                       suffix + " --prefix " + args.prefix + single_end)
 
             job_ids.append(cluster.submit(command, name=prefix + suffix,
                                           time=args.walltime, cores=1,
@@ -476,11 +474,13 @@ def main(argv=None):
         indel_skip = 0
         nosnp_skip = 0
         count      = 0
+        snp_count  = 0
         ryo_filter = 0
         for line in in_sam:
-            count += 1
             if re.match('^@', line):    # Skip header lines if applicable
                 continue
+
+            count += 1
 
             # Skip lines that overlap indels OR don't match Ns
             line = line.rstrip()
@@ -577,6 +577,7 @@ def main(argv=None):
                             genome_start += int(i)
 
                     for i in snp_pos:
+                        snp_count += 1
 
                         # RYO: START EDIT - Implemented Filter
                         posVal = str(line_t[2]) + '|' + str(i)
@@ -600,7 +601,8 @@ def main(argv=None):
                             potsnp_dict[str(line_t[0])].append(snp)
         logme.log('Total reads: {}'.format(count), 'warn')
         logme.log('Reads skipped for indels: {}'.format(indel_skip), 'warn')
-        logme.log('Reads not in SNPs: {}'.format(nosnp_skip), 'warn')
+        logme.log('Total SNPs checked: {}'.format(snp_count), 'warn')
+        logme.log('SNPs not in SNP list: {}'.format(nosnp_skip), 'warn')
         logme.log('Ryo filter: {}'.format(ryo_filter), 'warn')
 
         in_sam.close()
