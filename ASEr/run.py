@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-20 23:13
+ Last modified: 2016-03-21 13:54
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -127,3 +127,52 @@ def write_iterable(iterable, outfile):
     """Write all elements of iterable to outfile."""
     with open_zipped(outfile, 'w') as fout:
         fout.write('\n'.join(iterable))
+
+
+def split_file(infile, parts, outpath='', keep_header=True):
+    """Split a file in parts parts and return a list of paths.
+
+    NOTE: Linux specific (uses wc).
+
+    :outpath:     The directory to save the split files.
+    :keep_header: Add the header line to the top of every file.
+
+    """
+    # Determine how many reads will be in each split sam file.
+    logme.log('Getting line count', 'debug')
+    num_lines = int(os.popen(
+        'wc -l ' + infile + ' | awk \'{print $1}\'').read())
+    num_lines   = int(int(num_lines)/int(parts)) + 1
+
+    # Subset the file into X number of jobs, maintain extension
+    cnt      = 0
+    currjob  = 1
+    suffix   = '.split_' + str(currjob).zfill(4) + '.' + infile.split('.')[-1]
+    file_path, file_name = os.path.split(infile)
+    run_file = os.path.join(outpath, file_name + suffix)
+    outfiles = [run_file]
+
+    # Actually split the file
+    logme.log('Splitting file', 'debug')
+    with open(infile) as fin:
+        header = fin.readline() if keep_header else ''
+        split_file = open(run_file, 'w')
+        split_file.write(header)
+        for line in fin:
+            cnt += 1
+            if cnt < num_lines:
+                split_file.write(line)
+            elif cnt == num_lines:
+                split_file.write(line)
+                split_file.close()
+                currjob += 1
+                suffix = '.split_' + str(currjob).zfill(4) + '.' + \
+                    infile.split('.')[-1]
+                run_file = os.path.join(outpath, file_name + suffix)
+                split_file = open(run_file, 'w')
+                outfiles.append(run_file)
+                split_file.write(header)
+                cnt = 0
+        split_file.close()
+    return tuple(outfiles)
+

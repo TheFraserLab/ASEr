@@ -8,7 +8,7 @@ Submit jobs to either slurm or torque.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-21 01:00
+ Last modified: 2016-03-21 10:10
 
    DESCRIPTION: Allows simple job submission.
 
@@ -80,11 +80,11 @@ def make_job_file(command, name, time, cores, mem=None, partition=None,
             outfile.write('#!/bin/bash\n')
             for module in modules:
                 outfile.write('module load {}\n'.format(module))
-            outfile.write('echo "SLURM_JOBID="$SLURM_JOBID\n')
-            outfile.write('echo "SLURM_JOB_NODELIST"=$SLURM_JOB_NODELIST\n')
-            outfile.write('echo "SLURM_NNODES"=$SLURM_NNODES\n')
-            outfile.write('echo "SLURMTMPDIR="$SLURMTMPDIR\n')
-            outfile.write('echo "working directory = "$SLURM_SUBMIT_DIR\n')
+            #  outfile.write('echo "SLURM_JOBID="$SLURM_JOBID\n')
+            #  outfile.write('echo "SLURM_JOB_NODELIST"=$SLURM_JOB_NODELIST\n')
+            #  outfile.write('echo "SLURM_NNODES"=$SLURM_NNODES\n')
+            #  outfile.write('echo "SLURMTMPDIR="$SLURMTMPDIR\n')
+            #  outfile.write('echo "working directory = "$SLURM_SUBMIT_DIR\n')
             outfile.write('cd {}\n'.format(usedir))
             outfile.write('mkdir -p $LOCAL_SCRATCH\n')
             outfile.write("date +'%d-%H:%M:%S'\n")

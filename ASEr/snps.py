@@ -8,14 +8,13 @@ Filter SNP lists by individual.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-36-14 12:03
- Last modified: 2016-03-18 17:05
+ Last modified: 2016-03-21 16:04
 
    DESCRIPTION:
 
 ============================================================================
 """
 import sys
-from subprocess import check_output
 
 # Our functions
 from .plink import is_recodeAD
@@ -47,17 +46,21 @@ class Individual(object):
         Requires pybedtools, adds only records for snps in this individual.
 
         Note: This is a slow operation.
+
+        :returns: True on success, False on failure.
         """
         try:
             from pybedtools import BedTool
         except ImportError:
-            logme.log('pybedtools is not installed.\n' +
+            logme.log('add_bed() failed.\n' +
+                      'pybedtools is not installed.\n' +
                       'Please install and try again. You can get it from here:\n' +
                       'https://github.com/daler/pybedtools',
                       level='error')
-            return -1
+            return False
         bed = BedTool(bedfile)
         self.bed = [i for i in bed.filter(lambda a: a.name in self.snps)]
+        return True
 
     def save_bed(self, outfile, bedfile=None):
         """Save a bed file of SNPs to outfile.
@@ -66,16 +69,17 @@ class Individual(object):
         """
         if not self.bed:
             if bedfile:
-                self.add_bed(bedfile)
+                if not self.add_bed(bedfile):
+                    raise Exception('add_bed() failed.')
             else:
                 logme.log('Cannot save a bed file with no starting bed.\n' +
                           'Try again with the bedfile option, or by\n' +
                           'running add_bed first.', level='error')
-                return -1
+                return False
         with open_zipped(outfile, 'w') as fout:
             for i in self.bed:
                 fout.write(str(i))
-        return 0
+        return True
 
     def __init__(self, name, snplist):
         """Store the name and snplist."""
@@ -109,9 +113,51 @@ class Individual(object):
         for snp in self.snps:
             yield snp
 
+
+###############################################################################
+#                         Chromosome Standardization                          #
+###############################################################################
+
+
+def chrom_to_num(chrom):
+    """Strip leading 'chr' if it exists."""
+    return chrom[3:] if chrom.startswith('chr') else chrom
+
+
+def num_to_chrom(chrom):
+    """Add leading 'chr' if it doesn't exist."""
+    return 'chr' + chrom if not chrom.startswith('chr') else chrom
+
+
 ###############################################################################
 #                                File Filters                                 #
 ###############################################################################
+
+
+def hap_to_dict(haplotype_files):
+    """Create a dictionary of name => (REF, ALT) from haplotype file.
+
+    Note: haps file is 1 based
+
+    :haplotype_files: Single file or list/tuple of files
+    :returns:         A dictionary.
+
+    """
+    if isinstance(haplotype_files, str):
+        haplotype_files = [haplotype_files]
+    if not isinstance(haplotype_files, (list, tuple)):
+        raise Exception('haplotype_files must be list, tuple or string ' +
+                        'it is: {}'.format(type(haplotype_files)))
+
+    hap_dict = {}
+    for hap_file in haplotype_files:
+        with open_zipped(hap_file) as fin:
+            for line in fin:
+                fields = line.split(' ')
+                # Sample start of line:
+                # 1 rs78601809:15211:T:G 15211 T G 0 1
+                hap_dict[fields[1].split(':')[0]] = (fields[3], fields[4])
+    return hap_dict
 
 
 def filter_bed(bedfile, snp_list, outfile=sys.stdout):
@@ -186,6 +232,9 @@ def get_het_snps_from_recodeAD(infile, snps=None, individuals=None,
     name_index = int(name_index)
 
     # Parse the file
+    # In the recodeAD raw file, every second column (after the sample columns)
+    # is a snp_HET column, if it contains a 1, then the sample is heterozygous
+    # at that SNP. Those are the snps we keep for that individual.
     with open_zipped(infile) as fin:
         headers = [i[:-4] for i in fin.readline().rstrip().split(' ')[7::2]]
         for line in fin:

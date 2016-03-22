@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 01:02
+ Last modified: 2016-03-21 17:33
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -37,6 +37,7 @@ from os.path import basename
 from ASEr import logme    # Logging functions
 from ASEr import run      # File handling functions
 from ASEr import cluster  # Queue submission
+from ASEr.snps import chrom_to_num  # Chromosome number standardization
 
 # Logging
 logme.MIN_LEVEL = 'info'  # Switch to 'debug' for more verbose, 'warn' for less
@@ -345,9 +346,10 @@ def main(argv=None):
         for reads_file in reads_files:
             suffix = reads_file[-4:]
 
+            single_end = ' --single' if args.single else ''
             command = ("python2 " + program_name + " --mode single --snps " +
                        args.snps + " --reads " + reads_file + " --suffix " +
-                       suffix + " --prefix " + args.prefix)
+                       suffix + " --prefix " + args.prefix + single_end)
 
             job_ids.append(cluster.submit(command, name=prefix + suffix,
                                           time=args.walltime, cores=1,
@@ -450,18 +452,19 @@ def main(argv=None):
     # SINGLE MODE #
     ###############
 
-    # If we're running in single mode (each job submitted by multiplex mode will be running in single mode)
+    # If we're running in single mode (each job submitted by multiplex mode
+    # will be running in single mode)
     elif args.mode == 'single':
 
         # First read in the information on the SNPs that we're interested in.
         snps = {}    # Initialize a dictionary of SNP positions
 
-        snp_file = run.open_zipped(args.snps, 'r')
+        snp_file = run.open_zipped(args.snps)
         for line in snp_file:
             line = line.rstrip('\n')
             line_t = line.split('\t')
 
-            pos = str(line_t[0]) + '|' + str(line_t[2])
+            pos = chrom_to_num(line_t[0]) + '|' + str(line_t[2])
             snps[pos] = line_t[3]
 
         snp_file.close()
@@ -471,18 +474,28 @@ def main(argv=None):
         # Now parse the SAM file to extract only reads overlapping SNPs.
         num_reads = count_reads(sam_file)
         in_sam = Samfile(sam_file)
+
+        indel_skip = 0
+        nosnp_skip = 0
+        count      = 0
+        snp_count  = 0
+        ryo_filter = 0
         for line in in_sam:
+            count += 1
+
             # Skip lines that overlap indels OR don't match Ns
             cigarstring = line.cigarstring
 
             if 'D' in cigarstring or 'I' in cigarstring:
+                indel_skip += 1
                 continue
 
             # Split the tags to find the MD tag:
             tags = line.tags
             for tagname, tagval in tags:
                 if tagname == 'MD' and 'N' in tagval:
-                    # Remember that, for now, we're not allowing reads that overlap insertions/deletions.
+                    # Remember that, for now, we're not allowing reads that
+                    # overlap insertions/deletions.
 
                     chr = references[line.rname]
                     pos = line.pos
@@ -492,8 +505,13 @@ def main(argv=None):
                     read_seq = ''
 
                     # We're assuming
-                    # correct mapping such that FIRST MATES on the NEGATIVE STRAND are NEGATIVE, while
-                    # SECOND MATES on the NEGATIVE STRAND are POSITIVE.
+                    # correct mapping such that FIRST MATES on the NEGATIVE
+                    # STRAND are NEGATIVE, while SECOND MATES on the NEGATIVE
+                    # STRAND are POSITIVE.
+
+                    if args.single is True:
+                        if flag.is_reverse:  # RYO UPDATED HERE
+                            orientation = '-'
 
                     if args.single is True:
                         if flag.is_reverse:  # RYO UPDATED HERE
@@ -513,6 +531,11 @@ def main(argv=None):
                                 orientation = '+'
                             else:
                                 orientation = '-'
+                        else:
+                            sys.stderr.write(line)
+                            raise Exception('flag {} '.format(flag) +
+                                            'contains no mate data. Is your '
+                                            'data single end?')
 
                     # Parse the CIGAR string
                     cigar_types, cigar_vals = split_CIGAR(cigarstring)
@@ -522,15 +545,18 @@ def main(argv=None):
                     else:
                         MD_start = 0
 
-                    # Get the genomic positions corresponding to each base-pair of the read
-                    read_genomic_positions = CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, line.pos+1)
+                    # Get the genomic positions corresponding to each base-pair
+                    # of the read
+                    read_genomic_positions = CIGAR_to_Genomic_Positions(
+                        cigar_types, cigar_vals, line.pos+1)
 
                     # Get the tag data
                     MD_split = re.findall('\d+|\D+', tagval)
 
                     genome_start = 0
 
-                    # The snp_pos dictionary will store the 1-base position => allele
+                    # The snp_pos dictionary will store the 1-base position
+                    # => allele
                     snp_pos = {}
                     for i in MD_split:
                         if re.match('\^', i):
@@ -548,10 +574,12 @@ def main(argv=None):
                             genome_start += int(i)
 
                     for i in snp_pos:
+                        snp_count += 1
 
                         # RYO: START EDIT - Implemented Filter
                         posVal = line.rname + '|' + str(i)
                         if posVal not in snps:
+                            nosnp_skip += 1
                             continue
                         # RYO: END EDIT - Implmented Filter
 
@@ -559,10 +587,20 @@ def main(argv=None):
                         snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(chr=chr, i=i, snp_pos=snp_pos[i], orientation=orientation)
                         if line.qname in potsnp_dict:
                             if snp not in potsnp_dict[line.qname]:
-                                potsnp_dict[line.qname].append(snp)  # RYO EDIT HERE - added conditional so that pairs of reads are not considered twice if they both overlap the same snp.
+                                # RYO EDIT HERE - added conditional so that pairs
+                                # of reads are not considered twice if they both
+                                # overlap the same snp.
+                                potsnp_dict[line.qname].append(snp)
+                            else:
+                                ryo_filter += 1
                         else:
                             potsnp_dict[line.qname] = []
                             potsnp_dict[line.qname].append(snp)
+        logme.log('Total reads: {}'.format(count), 'warn')
+        logme.log('Reads skipped for indels: {}'.format(indel_skip), 'warn')
+        logme.log('Total SNPs checked: {}'.format(snp_count), 'warn')
+        logme.log('SNPs not in SNP list: {}'.format(nosnp_skip), 'warn')
+        logme.log('Ryo filter: {}'.format(ryo_filter), 'warn')
 
         in_sam.close()
 
