@@ -46,11 +46,14 @@ NOTE:    SNPs that overlap multiple features on the same strand (or counting fro
 Detailed description of inputs/outputs follows:
 
 -p/--phasedsnps
-    A tab-delimited BED file with positions of masked SNPs of interest as follows:
+    A tab-delimited file (custom BED format) with positions and haplotype
+    information of the masked SNPs of interest as follows:
 
-    [CHR]    [0 POSITION]    [1 POSITION]    [REF|ALT]
+    [CHR]\t[0 POSITION]\t[1 POSITION]\t[NAME]\t[REF|ALT]
 
     The fourth column MUST contain the phased SNPs alleles.
+
+    This file can be created using the create_phased_bed script.
 
 -g/--gff
     The script accepts both GTF and GFF annotation files. This should be combined with
