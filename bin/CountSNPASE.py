@@ -9,9 +9,8 @@ Count number of reads overlapping each SNP in a sam/bam file.
     MAINTAINER: Michael D Dacre, mike.dacre@gmail.com
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
-       VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 18:26
+ Last modified: 2016-03-21 18:31
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -20,18 +19,18 @@ Count number of reads overlapping each SNP in a sam/bam file.
 
 ============================================================================
 """
-import os                 # Path manipulation
-import sys                # Access to simple command-line arguments
-import argparse           # Access to long command-line parsing
-import re                 # Access to REGEX splitting
-import random             # Access to random number generation
-from time import sleep    # Allow system pausing
-from pysam import Samfile
+import os                  # Path manipulation
+import sys                 # Access to simple command-line arguments
+import argparse            # Access to long command-line parsing
+import re                  # Access to REGEX splitting
+import random              # Access to random number generation
+from time import sleep     # Allow system pausing
+from pysam import Samfile  # Read sam and bamfiles
 
 # Us
-from ASEr import logme    # Logging functions
-from ASEr import run      # File handling functions
-from ASEr import cluster  # Queue submission
+from ASEr import logme     # Logging functions
+from ASEr import run       # File handling functions
+from ASEr import cluster   # Queue submission
 from ASEr.snps import chrom_to_num  # Chromosome number standardization
 
 # Logging
@@ -76,9 +75,9 @@ SUM_READS\tSum of all reads assigned to the SNP
 
 """
 
-#############
-# FUNCTIONS #
-#############
+###############################################################################
+#                                  Functions                                  #
+###############################################################################
 
 
 def fasta_to_dict(file):
@@ -221,6 +220,11 @@ def split_samfile(sam_file, splits, prefix='', path=''):
     return tuple(outfiles)
 
 
+###############################################################################
+#                                 Main Script                                 #
+###############################################################################
+
+
 def main(argv=None):
     """Main script."""
     ##########################
@@ -234,8 +238,8 @@ def main(argv=None):
         argv = sys.argv[1:]
 
     parser  = argparse.ArgumentParser(
-        description=__doc__,
-        add_help=False, epilog=EPILOG, formatter_class=CustomFormatter)
+        description=__doc__, add_help=False,
+        epilog=EPILOG, formatter_class=CustomFormatter)
 
     req = parser.add_argument_group('Required arguments')
     req.add_argument('-m', '--mode',
