@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 17:45
+ Last modified: 2016-03-21 18:26
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -143,8 +143,9 @@ def CIGAR_to_Genomic_Positions(cigar_types, cigar_vals, pos):
             curr_pos = int(curr_pos) + int(cigar_vals[i])
     return genomic_positions
 
+
 def count_reads(samfilename):
-    """Return the number of reads in a samfile
+    """Return the number of reads in a samfile.
 
     Use built-in counts if possible, but fall back to looping through otherwise
     """
@@ -166,7 +167,7 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
     pass
 
 
-def split_samfile(sam_file, splits, prefix='', path='', wasbam=True):
+def split_samfile(sam_file, splits, prefix='', path=''):
     """Take a sam file and split it splits number of times.
 
     :path:    Where to put the split files.
@@ -177,31 +178,33 @@ def split_samfile(sam_file, splits, prefix='', path='', wasbam=True):
     num_lines = count_reads(sam_file)
     num_reads = int(int(num_lines)/splits) + 1
 
+    # Get rid of starting path
+    sam_path, sam_name = os.path.split(sam_file)
+
     # Subset the SAM file into X number of jobs
     cnt      = 0
     currjob  = 1
     suffix   = '.split_sam_' + str(currjob).zfill(4)
-    sam_path, sam_name = os.path.split(sam_file)
     run_file = os.path.join(path, prefix + sam_name + suffix)
-    outfiles = [run_file]
+    rmode    = 'rb' if sam_name.split('.')[0] == 'bam' else 'r'
+    wmode    = 'wb' if sam_name.split('.')[0] == 'bam' else 'w'
 
     # Actually split the file
-    with Samfile(sam_file) as in_sam:
-        sam_split = Samfile(prefix + os.path.basename(sam_file) + suffix,
-                'wb' if wasbam else 'w', template=in_sam)
+    outfiles = [run_file]
+    with Samfile(sam_file, rmode) as in_sam:
+        sam_split = Samfile(run_file, wmode, template=in_sam)
         for line in in_sam:
             cnt += 1
             if cnt < num_reads:
                 sam_split.write(line)
             elif cnt == num_reads:
-                # Check if next line is mate-pair. If so, don't split across files.
-                line2 = next(in_sam)
-                currjob += 1
-                suffix = '.split_sam_' + str(currjob).zfill(4)
-                new_sam = Samfile(prefix + os.path.basename(sam_file) + suffix,
-                        'wb' if wasbam else 'w',
-                        template=in_sam,
-                        )
+                # Check if next line is mate-pair. If so, don't split.
+                line2     = next(in_sam)
+                currjob  += 1
+                suffix    = '.split_sam_' + str(currjob).zfill(4)
+                run_file  = os.path.join(path, prefix + sam_name + suffix)
+                new_sam   = Samfile(run_file, wmode, template=in_sam)
+                outfiles.append(run_file)
 
                 if line.qname == line2.qname:
                     sam_split.write(line)
@@ -232,7 +235,7 @@ def main(argv=None):
 
     parser  = argparse.ArgumentParser(
         description=__doc__,
-        add_help=False, epilog=epilog, formatter_class=CustomFormatter)
+        add_help=False, epilog=EPILOG, formatter_class=CustomFormatter)
 
     req = parser.add_argument_group('Required arguments')
     req.add_argument('-m', '--mode',
@@ -302,8 +305,6 @@ def main(argv=None):
 
     # Initialize variables
     prefix = args.prefix + '_'
-    wasbam = False
-    mode = 'r'
 
     # Make sure we can run ourselves
     if not run.is_exe(program_name):
@@ -318,9 +319,10 @@ def main(argv=None):
     file_check[-1] = file_check[-1].lower()
     sam_path, sam_file = os.path.split(args.reads)
 
-    if file_check[-1] == 'bam' or args.bam is True:
-        wasbam = True
+    if args.reads.endswith('bam') or args.bam:
         mode = 'rb'
+    else:
+        mode = 'r'
 
     ##################
     # MULTIPLEX MODE #
@@ -330,7 +332,8 @@ def main(argv=None):
     if args.mode == 'multi':
         logme.log('Splitting sam file {} into {} files.'.format(sam_file,
                                                                 args.jobs))
-        reads_files = split_samfile(sam_file, args.jobs, prefix, wasbam)
+        reads_files = split_samfile(os.path.join(sam_path, sam_file),
+                                    args.jobs, prefix)
         logme.log('Splitting complete.')
 
         # Create PBS scripts and submit jobs to the cluster
@@ -349,7 +352,7 @@ def main(argv=None):
                                           time=args.walltime, cores=1,
                                           mem=args.memory,
                                           partition=args.queue))
-            sleep(2)    # Pause for two seconds to make sure job is properly submitted
+            sleep(2)    # Pause for two seconds to make sure job is submitted
 
         # Now wait and check for all jobs to complete every so long
         logme.log('Submission done, waiting for jobs to complete.')
@@ -368,7 +371,8 @@ def main(argv=None):
             sleep(10)
 
         logme.log('Jobs completed.')
-        os.system('rm {prefix}*_done'.format(prefix=prefix))    # Remove 'done' files in case we want to run again.
+        # Remove 'done' files in case we want to run again.
+        os.system('rm {prefix}*_done'.format(prefix=prefix))
 
         # Once the jobs are done, concatenate all of the counts into one file.
         # Initialize dictionaries
@@ -381,62 +385,65 @@ def main(argv=None):
 
         for i in range(1, args.jobs+1):
             suffix = str(i).zfill(4)
-            in_counts = run.open_zipped(prefix + 'SNP_COUNTS_' + suffix, 'r')
+            in_counts = prefix + 'SNP_COUNTS_' + suffix
 
             # Parse the line to add it to the total file
-            for line in in_counts:
-                line = line.rstrip('\n')
-                line_t = line.split('\t')
+            with run.open_zipped(in_counts, 'r') as in_counts:
+                for line in in_counts:
+                    line = line.rstrip('\n')
+                    line_t = line.split('\t')
 
-                if 'CHR' in line:
-                    continue
+                    if 'CHR' in line:
+                        continue
 
-                pos = line_t[0] + '|' + line_t[1]
+                    pos = line_t[0] + '|' + line_t[1]
 
-                pos_split = line_t[2].split('|')
-                neg_split = line_t[3].split('|')
+                    pos_split = line_t[2].split('|')
+                    neg_split = line_t[3].split('|')
 
-                if pos in tot_pos_counts or pos in tot_neg_counts or pos in tot_tot_counts:
-                    for j in range(len(pos_split)):
-                        tot_pos_counts[pos][j] += int(pos_split[j])
-                        tot_neg_counts[pos][j] += int(neg_split[j])
-                    tot_sum_pos[pos] += int(line_t[4])
-                    tot_sum_neg[pos] += int(line_t[5])
-                    tot_tot_counts[pos] += int(line_t[6])
+                    if pos in tot_pos_counts or pos in tot_neg_counts or pos in tot_tot_counts:
+                        for j in range(len(pos_split)):
+                            tot_pos_counts[pos][j] += int(pos_split[j])
+                            tot_neg_counts[pos][j] += int(neg_split[j])
+                        tot_sum_pos[pos] += int(line_t[4])
+                        tot_sum_neg[pos] += int(line_t[5])
+                        tot_tot_counts[pos] += int(line_t[6])
 
-                else:
-                    tot_pos_counts[pos] = [0, 0, 0, 0]
-                    tot_neg_counts[pos] = [0, 0, 0, 0]
-                    tot_tot_counts[pos] = 0
-                    tot_sum_pos[pos] = 0
-                    tot_sum_neg[pos] = 0
-                    for j in range(len(pos_split)):
-                        tot_pos_counts[pos][j] += int(pos_split[j])
-                        tot_neg_counts[pos][j] += int(neg_split[j])
-                    tot_sum_pos[pos] += int(line_t[4])
-                    tot_sum_neg[pos] += int(line_t[5])
-                    tot_tot_counts[pos] += int(line_t[6])
-
-            in_counts.close()
+                    else:
+                        tot_pos_counts[pos] = [0, 0, 0, 0]
+                        tot_neg_counts[pos] = [0, 0, 0, 0]
+                        tot_tot_counts[pos] = 0
+                        tot_sum_pos[pos] = 0
+                        tot_sum_neg[pos] = 0
+                        for j in range(len(pos_split)):
+                            tot_pos_counts[pos][j] += int(pos_split[j])
+                            tot_neg_counts[pos][j] += int(neg_split[j])
+                        tot_sum_pos[pos] += int(line_t[4])
+                        tot_sum_neg[pos] += int(line_t[5])
+                        tot_tot_counts[pos] += int(line_t[6])
 
         # Write out the final concatenated file
-        final_counts = run.open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
-        final_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
+        with run.open_zipped(prefix + 'SNP_COUNTS.txt', 'w') as final_counts:
+            final_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\t' +
+                               'SUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
 
-        keys = sorted(tot_pos_counts.keys())
+            keys = sorted(tot_pos_counts.keys())
 
-        for key in keys:
-            pos = key.split('|')
-            pos_fix = [str(x) for x in tot_pos_counts[key]]
-            neg_fix = [str(x) for x in tot_neg_counts[key]]
-            pos_out = '|'.join(pos_fix)
-            neg_out = '|'.join(neg_fix)
-            final_counts.write(str(pos[0]) + '\t' + str(pos[1]) + '\t' + pos_out + '\t' + neg_out + '\t' + str(tot_sum_pos[key]) + '\t' + str(tot_sum_neg[key]) + '\t' + str(tot_tot_counts[key]) + '\n')
-
-        final_counts.close()
+            for key in keys:
+                pos = key.split('|')
+                pos_fix = [str(x) for x in tot_pos_counts[key]]
+                neg_fix = [str(x) for x in tot_neg_counts[key]]
+                pos_out = '|'.join(pos_fix)
+                neg_out = '|'.join(neg_fix)
+                final_counts.write(str(pos[0]) + '\t' + str(pos[1]) + '\t' +
+                                   pos_out + '\t' + neg_out + '\t' +
+                                   str(tot_sum_pos[key]) + '\t' +
+                                   str(tot_sum_neg[key]) + '\t' +
+                                   str(tot_tot_counts[key]) + '\n')
 
         # Sort the file numerically
-        os.system('sort -k1,2 -n ' + prefix + 'SNP_COUNTS.txt ' + ' -o ' + prefix + 'SNP_COUNTS.txt')
+        os.system('sort -k1,2 -n ' + prefix + 'SNP_COUNTS.txt ' + ' -o ' +
+                  prefix + 'SNP_COUNTS.txt')
 
         # Clean up intermediate files.
         if args.noclean is False:
@@ -453,28 +460,29 @@ def main(argv=None):
         # First read in the information on the SNPs that we're interested in.
         snps = {}    # Initialize a dictionary of SNP positions
 
-        snp_file = run.open_zipped(args.snps)
-        for line in snp_file:
-            line = line.rstrip('\n')
-            line_t = line.split('\t')
+        with run.open_zipped(args.snps) as snp_file:
+            for line in snp_file:
+                line = line.rstrip('\n')
+                line_t = line.split('\t')
 
-            pos = chrom_to_num(line_t[0]) + '|' + str(line_t[2])
-            snps[pos] = line_t[3]
+                pos = chrom_to_num(line_t[0]) + '|' + str(line_t[2])
+                snps[pos] = line_t[3]
 
-        snp_file.close()
-
-        potsnp_dict = {}    # This is the dictionary of potential SNPs for each read.
+        # This is the dictionary of potential SNPs for each read.
+        potsnp_dict = {}
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
-        num_reads = count_reads(sam_file)
-        in_sam = Samfile(sam_file)
-        references = in_sam.references
+        in_sam     = Samfile(sam_file, mode)
+        num_reads  = count_reads(sam_file)
+        references = in_sam.references  # Faster to make a copy of references.
 
+        # Trackers to count how many reads are lost at each step
         indel_skip = 0
         nosnp_skip = 0
         count      = 0
         snp_count  = 0
         ryo_filter = 0
+
         for line in in_sam:
             count += 1
 
@@ -492,8 +500,8 @@ def main(argv=None):
                     # Remember that, for now, we're not allowing reads that
                     # overlap insertions/deletions.
 
-                    chr = references[line.rname]
-                    pos = line.pos
+                    chr  = references[line.rname]
+                    pos  = line.pos
                     read = line.seq
                     flag = line.flag
 
@@ -515,14 +523,14 @@ def main(argv=None):
                             orientation = '+'
 
                     else:
-                        if flag.is_read1:    # First mate
-                            if flag.is_reverse:    # If reverse, then negative strand
+                        if flag.is_read1:        # First mate
+                            if flag.is_reverse:  # If reverse: negative strand
                                 orientation = '-'
                             else:
                                 orientation = '+'
 
-                        elif flag.is_read2:    # Second mate
-                            if flag.is_reverse:    # If reverse, then positive
+                        elif flag.is_read2:      # Second mate
+                            if flag.is_reverse:  # If reverse: positive strand
                                 orientation = '+'
                             else:
                                 orientation = '-'
@@ -578,32 +586,36 @@ def main(argv=None):
                             continue
                         # RYO: END EDIT - Implmented Filter
 
-                        snp = line.rname + '|' + str(i) + '\t' + str(snp_pos[i]) + '\t' + orientation
-                        snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(chr=chr, i=i, snp_pos=snp_pos[i], orientation=orientation)
+                        snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(
+                            chr=chr, i=i, snp_pos=snp_pos[i],
+                            orientation=orientation)
                         if line.qname in potsnp_dict:
                             if snp not in potsnp_dict[line.qname]:
-                                # RYO EDIT HERE - added conditional so that pairs
-                                # of reads are not considered twice if they both
-                                # overlap the same snp.
+                                # RYO EDIT HERE - added conditional so that
+                                # pairs of reads are not considered twice if
+                                # they both overlap the same snp.
                                 potsnp_dict[line.qname].append(snp)
                             else:
                                 ryo_filter += 1
                         else:
                             potsnp_dict[line.qname] = []
                             potsnp_dict[line.qname].append(snp)
+
+        in_sam.close()
+
+        # Log all of the skipped reads
         logme.log('Total reads: {}'.format(count), 'warn')
         logme.log('Reads skipped for indels: {}'.format(indel_skip), 'warn')
         logme.log('Total SNPs checked: {}'.format(snp_count), 'warn')
         logme.log('SNPs not in SNP list: {}'.format(nosnp_skip), 'warn')
         logme.log('Ryo filter: {}'.format(ryo_filter), 'warn')
 
-        in_sam.close()
-
         # Initialize the counting dictionaries
         pos_counts = {}
         neg_counts = {}
 
-        # Go through the potential SNP dictionary and choose one SNP at random for those overlapping multiple SNPs
+        # Go through the potential SNP dictionary and choose one SNP at random
+        # for those overlapping multiple SNPs
         keys = list(potsnp_dict.keys())
         for key in keys:
             snp = random.choice(potsnp_dict[key]).split('\t')
@@ -655,34 +667,32 @@ def main(argv=None):
 
         # Open the output file and write the SNP counts to it
 
-        if not args.suffix:
-            out_counts = run.open_zipped(prefix + 'SNP_COUNTS.txt', 'w')
-        else:
-            out_counts = run.open_zipped(prefix + 'SNP_COUNTS_' + args.suffix, 'w')
+        out_counts = prefix + 'SNP_COUNTS_' + args.suffix if args.suffix \
+            else prefix + 'SNP_COUNTS.txt'
 
-        # Write header
-        out_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\tSUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
+        with open(out_counts, 'w') as out_counts:
+            # Write header
+            out_counts.write('CHR\tPOSITION\tPOS_A|C|G|T\tNEG_A|C|G|T\t' +
+                             'SUM_POS_READS\tSUM_NEG_READS\tSUM_READS\n')
 
-        # Sort SNP positions and write them
-        keys = sorted(pos_counts.keys())
+            # Sort SNP positions and write them
+            keys = sorted(pos_counts.keys())
 
-        for key in keys:
-            pos = key.split('|')
-            sum_pos = sum(pos_counts[key])
-            sum_neg = sum(neg_counts[key])
-            tot_sum = sum(pos_counts[key]) + sum(neg_counts[key])
-            pos_fix = [str(x) for x in pos_counts[key]]
-            neg_fix = [str(x) for x in neg_counts[key]]
-            positive = '|'.join(pos_fix)
-            negative = '|'.join(neg_fix)
+            for key in keys:
+                pos = key.split('|')
+                sum_pos = sum(pos_counts[key])
+                sum_neg = sum(neg_counts[key])
+                tot_sum = sum(pos_counts[key]) + sum(neg_counts[key])
+                pos_fix = [str(x) for x in pos_counts[key]]
+                neg_fix = [str(x) for x in neg_counts[key]]
+                positive = '|'.join(pos_fix)
+                negative = '|'.join(neg_fix)
 
-            out_counts.write(pos[0] + '\t' + pos[1] + '\t' + positive + '\t' + negative + '\t' + str(sum_pos) + '\t' + str(sum_neg) + '\t' + str(tot_sum) + '\n')
+                out_counts.write(pos[0] + '\t' + pos[1] + '\t' + positive +
+                                 '\t' + negative + '\t' + str(sum_pos) + '\t' +
+                                 str(sum_neg) + '\t' + str(tot_sum) + '\n')
 
-        out_counts.close()
-
-        if not args.suffix:
-            pass
-        else:
+        if args.suffix:
             os.system('touch ' + prefix + args.suffix + '_done')
 
 if __name__ == '__main__' and '__file__' in globals():
