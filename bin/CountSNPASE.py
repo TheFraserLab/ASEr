@@ -11,7 +11,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2015-03-16
- Last modified: 2016-03-21 17:33
+ Last modified: 2016-03-21 17:45
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -23,15 +23,10 @@ Count number of reads overlapping each SNP in a sam/bam file.
 import os                 # Path manipulation
 import sys                # Access to simple command-line arguments
 import argparse           # Access to long command-line parsing
-import datetime           # Access to calendar/clock functions
 import re                 # Access to REGEX splitting
-import math               # Access to math functions
 import random             # Access to random number generation
-import subprocess         # Access to direct command line in/out processing
-import textwrap           # Add text block wrapping properties
 from time import sleep    # Allow system pausing
 from pysam import Samfile
-from os.path import basename
 
 # Us
 from ASEr import logme    # Logging functions
@@ -46,7 +41,7 @@ logme.MIN_LEVEL = 'info'  # Switch to 'debug' for more verbose, 'warn' for less
 #                          Command Line Description                           #
 ###############################################################################
 
-epilog = """\
+EPILOG = """\
 Detailed description of inputs/outputs follows:
 
 -s/--snps
@@ -109,7 +104,7 @@ def fasta_to_dict(file):
 
 
 def split_CIGAR(cigar):
-    """Split the CIGAR string and return two lists: types and values in order."""
+    """Split the CIGAR string and return two lists: types and values."""
     cig_types_tmp = re.split('[0-9]', cigar)
     cig_vals_tmp = re.split('[MIDNSHP\=X]', cigar)
     cig_types = []
@@ -192,9 +187,8 @@ def split_samfile(sam_file, splits, prefix='', path='', wasbam=True):
 
     # Actually split the file
     with Samfile(sam_file) as in_sam:
-        sam_split = Samfile(prefix + basename(sam_file) + suffix,
-                'wb' if wasbam else 'w',
-                template=in_sam)
+        sam_split = Samfile(prefix + os.path.basename(sam_file) + suffix,
+                'wb' if wasbam else 'w', template=in_sam)
         for line in in_sam:
             cnt += 1
             if cnt < num_reads:
@@ -202,9 +196,9 @@ def split_samfile(sam_file, splits, prefix='', path='', wasbam=True):
             elif cnt == num_reads:
                 # Check if next line is mate-pair. If so, don't split across files.
                 line2 = next(in_sam)
-                curr_job += 1
+                currjob += 1
                 suffix = '.split_sam_' + str(currjob).zfill(4)
-                new_sam = Samfile(prefix + basename(sam_file) + suffix,
+                new_sam = Samfile(prefix + os.path.basename(sam_file) + suffix,
                         'wb' if wasbam else 'w',
                         template=in_sam,
                         )
@@ -474,6 +468,7 @@ def main(argv=None):
         # Now parse the SAM file to extract only reads overlapping SNPs.
         num_reads = count_reads(sam_file)
         in_sam = Samfile(sam_file)
+        references = in_sam.references
 
         indel_skip = 0
         nosnp_skip = 0
