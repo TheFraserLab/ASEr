@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Create a phased SNP bed file from haplotype data.
+
+============================================================================
+
+        AUTHOR: Michael D Dacre, mike.dacre@gmail.com
+  ORGANIZATION: Stanford University
+       LICENSE: MIT License, property of Stanford, use as you wish
+       VERSION: 0.1
+       CREATED: 2016-25-21 15:03
+ Last modified: 2016-03-21 16:27
+
+          Note: haps file is 1 based, output is bed, which is 0-based
+
+============================================================================
+"""
+import os
+import sys
+import argparse
+
+# Us
+from ASEr import snps
+from ASEr.run import open_zipped
+
+
+def hap_to_bed(haplotype_files, outfile, chrom=None):
+    """Create a dictionary of name => (REF, ALT) from haplotype file.
+
+    Note: haps file is 1 based
+
+    :haplotype_files: Single file or list/tuple of files
+    :chrom:           Two options (optional):
+                        'num': convert chromosome to number
+                        'chr': convert chromosome to chr#
+    :returns:         True on success
+
+    """
+    if haplotype_files:
+        if isinstance(haplotype_files, str):
+            haplotype_files = [haplotype_files]
+        if not isinstance(haplotype_files, (list, tuple)):
+            raise TypeError('haplotype_files must be list, tuple or string ' +
+                            'it is: {}'.format(type(haplotype_files)))
+    else:
+        haplotype_files = [sys.stdin]
+
+    outfile = outfile if outfile else sys.stdout
+
+    with open_zipped(outfile, 'w') as fout:
+        for hap_file in haplotype_files:
+            with open_zipped(hap_file) as fin:
+                for line in fin:
+                    # Sample start of line:
+                    # 1 rs78601809:15211:T:G 15211 T G 0 1
+                    fields   = line.split(' ')
+                    if chrom:
+                        if chrom == 'num':
+                            chr_name = snps.chrom_to_num(fields[0])
+                        elif chrom == 'chr':
+                            chr_name = snps.num_to_chrom(fields[0])
+                        else:
+                            raise Exception('Invalid argument for chrom')
+                    else:
+                        chr_name = fields[0]
+                    snp_name = fields[1].split(':')[0]
+                    base1 = int(fields[2])
+                    base0 = base1-1
+                    fout.write('\t'.join([chr_name, str(base0), str(base1),
+                                          snp_name, '|'.join(fields[3:5])]) +
+                               '\n')
+    return True
+
+
+def main(argv=None):
+    """Argument Parsing."""
+    usage  = '\tcreate_phased_bed -i hap_file [hap_file...] -o bed_file\n'
+    usage += '\tcat hap_file | create_phased_bed > bed_file\n'
+    usage += '\tcreate_phased_bed --help'
+    if not argv:
+        argv = sys.argv[1:]
+
+    parser  = argparse.ArgumentParser(
+        description=__doc__, usage=usage, add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    files = parser.add_argument_group('Files')
+    files.add_argument('-i', '--hap_files', nargs='+', metavar='infile',
+                       help="List of haps files, default STDIN")
+    files.add_argument('-o', '--bed_file', metavar='',
+                       help="Output bed file, default STDOUt, gzipped OK")
+
+    optargs = parser.add_argument_group('Optional Arguments')
+    optargs.add_argument('--chr_format', choices=['num', 'chr'],
+                         help='Convert chromsome to number only (num) or to ' +
+                         'chr# (chr)')
+    optargs.add_argument('-h', '--help', action="help",
+                         help="Show this help and exit.")
+
+
+    args = parser.parse_args(argv)
+
+    # Check file lists
+    if args.hap_files:
+        hap_files = []
+        # Allow comma-separated lists
+        for hap_file in args.hap_files:
+            hap_files = hap_files + hap_file.split(',')
+        # Make sure all files exist
+        for hap_file in hap_files:
+            if not os.path.isfile(hap_file):
+                sys.stderr.write('Cannot find file: {}\n'.format(hap_file))
+                return 1
+    else:
+        hap_files = None
+
+    if hap_to_bed(hap_files, args.bed_file, args.chr_format):
+        return 0
+    else:
+        return 2
+
+if __name__ == '__main__' and '__file__' in globals():
+    sys.exit(main())

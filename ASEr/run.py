@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-17 12:20
+ Last modified: 2016-03-22 22:19
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -19,12 +19,38 @@ File management and execution functions.
 import os
 import gzip
 import bz2
+import argparse
 from subprocess import Popen
 from subprocess import PIPE
 
 from . import logme
 
-__all__ = ['run_cmd', 'which', 'open_zipped']
+__all__ = ['cmd', 'which', 'open_zipped']
+
+
+###############################################################################
+#                               Useful Classes                                #
+###############################################################################
+
+
+class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
+                      argparse.RawDescriptionHelpFormatter):
+
+    """Custom argparse formatting."""
+
+    pass
+
+
+class CommandError(Exception):
+
+    """A custom exception."""
+
+    pass
+
+
+###############################################################################
+#                              Useful Functions                               #
+###############################################################################
 
 
 def open_zipped(infile, mode='r'):
@@ -49,22 +75,40 @@ def open_zipped(infile, mode='r'):
         return open(infile, mode)
 
 
-def run_cmd(cmd, args):
+def cmd(cmd, args=None, stdout=None, stderr=None):
     """Run command and return status, output, stderr.
 
-    cmd:  Path to executable.
-    args: Tuple of arguments.
+    cmd:    Path to executable.
+    args:   Tuple of arguments.
+    stdout: File or open file like object to write STDOUT to.
+    stderr: File or open file like object to write STDERR to.
     """
-    args = (cmd,) + args
-    pp = Popen(args, shell=False, universal_newlines=True,
+    if args:
+        if isinstance(args, list):
+            args = tuple(list)
+        if not isinstance(args, tuple):
+            raise CommandError('args must be tuple')
+        args = (cmd,) + args
+    else:
+        args = (cmd,)
+    logme.log('Running {} as {}'.format(cmd, args), 'debug')
+    pp = Popen(args, shell=True, universal_newlines=True,
                stdout=PIPE, stderr=PIPE)
     out, err = pp.communicate()
     code = pp.returncode
-    if out[-1:] == '\n':
-        out = out[:-1]
-    if err[-1:] == '\n':
-        err = err[:-1]
-    return code, out, err
+    logme.log('{} completed with code {}'.format(cmd, code), 'debug')
+    if stdout:
+        with open_zipped(stdout, 'w') as fout:
+            fout.write(out)
+    if stderr:
+        with open_zipped(stderr, 'w') as fout:
+            fout.write(err)
+    return code, outrstrip(), err.rstrip()
+
+
+def is_exe(fpath):
+    """Return True is fpath is executable."""
+    return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
 
 def which(program):
@@ -76,10 +120,6 @@ def which(program):
     :program: Name of executable to test.
     :returns: Path to the program or None on failure.
     """
-    def is_exe(fpath):
-        """Return True is fpath is executable."""
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
     fpath, fname = os.path.split(program)
     if fpath:
         if is_exe(program):
@@ -126,3 +166,52 @@ def write_iterable(iterable, outfile):
     """Write all elements of iterable to outfile."""
     with open_zipped(outfile, 'w') as fout:
         fout.write('\n'.join(iterable))
+
+
+def split_file(infile, parts, outpath='', keep_header=True):
+    """Split a file in parts parts and return a list of paths.
+
+    NOTE: Linux specific (uses wc).
+
+    :outpath:     The directory to save the split files.
+    :keep_header: Add the header line to the top of every file.
+
+    """
+    # Determine how many reads will be in each split sam file.
+    logme.log('Getting line count', 'debug')
+    num_lines = int(os.popen(
+        'wc -l ' + infile + ' | awk \'{print $1}\'').read())
+    num_lines   = int(int(num_lines)/int(parts)) + 1
+
+    # Subset the file into X number of jobs, maintain extension
+    cnt      = 0
+    currjob  = 1
+    suffix   = '.split_' + str(currjob).zfill(4) + '.' + infile.split('.')[-1]
+    file_path, file_name = os.path.split(infile)
+    run_file = os.path.join(outpath, file_name + suffix)
+    outfiles = [run_file]
+
+    # Actually split the file
+    logme.log('Splitting file', 'debug')
+    with open(infile) as fin:
+        header = fin.readline() if keep_header else ''
+        split_file = open(run_file, 'w')
+        split_file.write(header)
+        for line in fin:
+            cnt += 1
+            if cnt < num_lines:
+                split_file.write(line)
+            elif cnt == num_lines:
+                split_file.write(line)
+                split_file.close()
+                currjob += 1
+                suffix = '.split_' + str(currjob).zfill(4) + '.' + \
+                    infile.split('.')[-1]
+                run_file = os.path.join(outpath, file_name + suffix)
+                split_file = open(run_file, 'w')
+                outfiles.append(run_file)
+                split_file.write(header)
+                cnt = 0
+        split_file.close()
+    return tuple(outfiles)
+

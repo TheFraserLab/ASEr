@@ -10,7 +10,7 @@ Create a bed file for each individual containing only exonic heterozygous snps.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-46-18 11:03
- Last modified: 2016-03-18 17:22
+ Last modified: 2016-03-21 14:51
 
    DESCRIPTION: This script provides a lot of flexibility in creating bed
                 files containing only exonic heterozygous SNPs.
@@ -38,19 +38,28 @@ Create a bed file for each individual containing only exonic heterozygous snps.
 import os
 import sys
 import argparse
+from time import sleep
+
+# Make sure pybedtools is installed
+from pybedtools import BedTool
+
+# Us
 from ASEr import snps
 from ASEr import plink
 from ASEr import logme
+from ASEr import cluster
+from ASEr import run
 from ASEr.run import open_zipped
 
 logme.MIN_LEVEL = 'info'
 
+
 def main(argv=None):
     """Run as a script."""
-    usage  = "\tcreate_individual_snp_files [-g] [-o outdir] [-t threads] plink "
+    usage  = "\tcreate_individual_snp_files [-g] [-o outdir] [-j threads] plink "
     usage += "snps\n"
-    usage += "\tcreate_individual_snp_files [-g] [-o outdir] [-t threads] "
-    usage += "--snpfile snpfile --exonfile exonfile plink\n"
+    usage += "\tcreate_individual_snp_files [-g] [-o outdir] [-j threads] "
+    usage += "--snpfile snp_bed --exonfile exonfile plink\n"
     usage += "\tcreate_individual_snp_files --help"
     if not argv:
         argv = sys.argv[1:]
@@ -61,7 +70,6 @@ def main(argv=None):
         add_help=False,
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    # Reference Files
     reffiles = parser.add_argument_group('Reference Files (positional)')
     reffiles.add_argument('plink',
                           help="The plink file, can be a prefix or full path")
@@ -74,31 +82,42 @@ def main(argv=None):
     snpgen = parser.add_argument_group('Generate exonic SNP list',
                                        "[Use if exon_snp file doesn't already" +
                                        " exist]")
-    snpgen.add_argument('--snpfile',
-                          help="A bed file of snps (gzipped OK)")
-    snpgen.add_argument('--exonfile',
+    snpgen.add_argument('--snpfile', metavar='snp_bed',
+                        help="A bed file of snps (gzipped OK)")
+    snpgen.add_argument('--exonfile', metavar='exon_bed',
                         help="A bed file of exons (gzipped OK).")
 
-    # Individual filtering
     filtering = parser.add_argument_group('Filter Individuals')
-    filtering.add_argument('-f', '--filter',
+    filtering.add_argument('-f', '--filter', metavar='',
                            help="List of individuals to keep. Either " +
                            "comma-separated or as a file (newline separated")
-    filtering.add_argument('--split_name',
+    filtering.add_argument('--split_name', metavar='',
                            help="Split the individual name in plink on this " +
                            "character (must be a single character)")
-    filtering.add_argument('--split_index', type=int, default=0,
+    filtering.add_argument('--split_index', type=int, default=0, metavar='',
                            help="Index of split name to compare individuals " +
                            "to")
 
+    mult = parser.add_argument_group('Multi(plex) mode arguments')
+    mult.add_argument('-j', '--jobs', type=int,
+                      help='Divide into # of jobs', metavar='')
+    mult.add_argument('-w', '--walltime',
+                      help='Walltime for each job', default='3:00:00',
+                      metavar='')
+    mult.add_argument('-k', '--mem', dest='memory', type=int, metavar='',
+                      help='Memory for each job in MB (int)', default=5000)
+    mult.add_argument('--queue', metavar='',
+                      help='Queue to submit jobs to', default='batch')
+    mult.add_argument('--cluster', help='Which cluster to use', metavar='',
+                      choices=['torque', 'slurm'], default='torque')
+
     optargs = parser.add_argument_group('Optional Arguments')
-    optargs.add_argument('-o', '--outdir',
+    optargs.add_argument('-o', '--outdir', metavar='',
                          help="The output directory to write files to")
     optargs.add_argument('-g', '--gzip', action='store_true',
                          help="gzip compress the output files")
-    #  optargs.add_argument('-t', '--threads',
-                         #  help="Split plink file into this many chunks and " +
-                         #  "run in parallel")
+    optargs.add_argument('-q', '--quiet', action="store_true",
+                         help="Quiet output")
     optargs.add_argument('-v', '--verbose', action="store_true",
                          help="Verbose output")
     optargs.add_argument('-h', '--help', action="help",
@@ -109,6 +128,8 @@ def main(argv=None):
     # Set log level if verbose
     if args.verbose:
         logme.MIN_LEVEL = 'debug'
+    elif args.quiet:
+        logme.MIN_LEVEL = 'warn'
 
     ##########################################################################
     #                            Argument Parsing                            #
@@ -167,6 +188,10 @@ def main(argv=None):
             raw_file = plink_root + '.raw'
         elif os.path.exists(plink_root + '.raw.gz'):
             raw_file = plink_root + '.raw.gz'
+        if os.path.exists(plink_root + 'recodeAD.raw'):
+            raw_file = plink_root + 'recodeAD.raw'
+        elif os.path.exists(plink_root + 'recodeAD.raw.gz'):
+            raw_file = plink_root + 'recodeAD.raw.gz'
         else:
             raw_file = None
 
@@ -182,52 +207,133 @@ def main(argv=None):
         snplist = snps.snps_from_bed(args.snps)
         bedfile = args.snps
     else:
-        logme.log('Generating exon level snp list')
+        outfile = 'exonic_snps.bed'
+        logme.log('Generating exon level snp list at {}'.format(outfile))
         snplist = snps.filter_snps_by_exon(snp_file=args.snpfile,
-                                           exon_file=args.exonfile)
-        bedfile = args.snpfile
+                                           exon_file=args.exonfile,
+                                           outfile=outfile,
+                                           outbed=True)
+        bedfile = outfile
     logme.log('Got all exon level snps')
 
     ##########################################################################
     #                        Run the primary function                        #
     ##########################################################################
 
-    # Build arguments for function
-    run_args = {'infile': raw_file, 'snps': snplist}
-    if args.filter:
-        run_args['individuals'] = individuals
-        if args.split_name:
-            run_args['split_individual'] = args.split_name
-            run_args['name_index'] = args.split_index
+    # If jobs provided, split file and run on subfiles
+    if args.jobs:
+        prog_path, prog_name = os.path.split(sys.argv[0])
+        prog = os.path.abspath(os.path.join(prog_path, prog_name)) \
+            if prog_path else prog_name
+        if not run.is_exe(prog):
+            prog = run.which(prog_name)
+        if not run.is_exe(prog):
+            raise Exception('Cannot find the path to myself.')
+        logme.log('Splitting raw file')
+        outpath = os.path.join(args.outdir, 'split_files') if args.outdir \
+            else 'split_files'
+        if not os.path.isdir(outpath):
+            os.makedirs(outpath)
+        run_files = run.split_file(raw_file, args.jobs, outpath=outpath)
 
-    # Loop through individuals
-    names = []
-    count = 0
-    logme.log('Builing SNP list for every individual')
-    for ind in snps.get_het_snps_from_recodeAD(**run_args):
-        names.append(ind.name)
-        logme.log('Working on {}'.format(ind.name), 'debug')
-        outfile = ind.name + '_snps.bed'
-        if args.outdir:
-            outfile = os.path.join(args.outdir, outfile)
-        if args.gzip:
-            outfile = outfile + '.gz'
+        # Create PBS scripts and submit jobs to cluster
+        job_ids = []
+        logme.log('Submitting jobs')
+        for run_file in run_files:
+            command  = "python " + prog
+            if args.filter:
+                command += ' -f {}'.format(args.filter)
+            if args.split_name:
+                command += ' --split_name {} --split_index {}'.format(
+                    args.split_name, args.split_index)
+            if args.outdir:
+                command += ' -o {}'.format(args.outdir)
+            if args.gzip:
+                command += ' -g'
+            if args.quiet:
+                command += ' -q'
+            if args.verbose:
+                command += ' -v'
+            command += ' {} {}'.format(run_file, bedfile)
 
-        # Actually write the bed file
-        ind.save_bed(outfile, bedfile)
-        count = count + 1
+            job_id = cluster.submit(command, name=run_file,
+                                    time=args.walltime, cores=1,
+                                    mem=args.memory,
+                                    partition=args.queue)
 
-    # Check for any missing names
-    if args.filter:
-        not_included = []
-        for ind in individuals:
-            if ind not in names:
-                not_included.append(ind)
-        if not_included:
-            logme.log('The following individuals were not found in the ' +
-                      'plink file: {}'.format(', '.join(not_included)), 'warn')
+            logme.log('{}: {}'.format(run_file, job_id), 'debug')
+            job_ids.append(job_id)
+            sleep(2)    # Pause for two seconds to make sure job is properly submitted
 
-    logme.log('Completed {} individuals.\n'.format(count))
+        # Now wait and check for all jobs to complete every so long
+        logme.log('Submission done, waiting for jobs to complete.')
+        done = False
+        completed = 0
+        while done is False:
+            tot_done = 0
+            for run_file in run_files:
+                done_file = os.path.split(run_file)[1] + '_done'
+                if os.path.isfile(done_file):
+                    tot_done += 1
+                    with open(done_file) as fin:
+                        completed += int(fin.readline().split(' ')[1])
+
+                # Remove 'done' files in case we want to run again.
+                os.remove(run_file)
+
+            if tot_done == args.jobs:
+                done = True
+
+            sleep(10)
+
+        logme.log('Jobs completed.')
+        logme.log('Completed {} individuals.'.format(completed))
+
+    # Actually search the individuals, run directly if args.jobs not provided,
+    # or called indirectly by the above block of code.
+    else:
+        # Build arguments for function
+        run_args = {'infile': raw_file, 'snps': snplist}
+        if args.filter:
+            run_args['individuals'] = individuals
+            if args.split_name:
+                run_args['split_individual'] = args.split_name
+                run_args['name_index'] = args.split_index
+
+        # Loop through individuals
+        names = []
+        count = 0
+        logme.log('Builing SNP list for every individual')
+        for ind in snps.get_het_snps_from_recodeAD(**run_args):
+            names.append(ind.name)
+            logme.log('Working on {}'.format(ind.name), 'debug')
+            outfile = ind.name + '_snps.bed'
+            if args.outdir:
+                outfile = os.path.join(args.outdir, outfile)
+            if args.gzip:
+                outfile = outfile + '.gz'
+
+            # Actually write the bed file
+            if not ind.save_bed(outfile, bedfile):
+                raise Exception('Save bed operation failed.'
+                                'Is pybedtools installed?')
+            count = count + 1
+
+        # Check for any missing names
+        if args.filter:
+            not_included = []
+            for ind in individuals:
+                if ind not in names:
+                    not_included.append(ind)
+            if not_included:
+                logme.log('The following individuals were not found in the ' +
+                          'plink file: {}'.format(', '.join(not_included)),
+                          'warn')
+
+        logme.log('Completed {} individuals.\n'.format(count))
+        done_file = os.path.split(raw_file)[1] + '_done'
+        with open(done_file, 'w') as fout:
+            fout.write('Completed {} individuals.\n'.format(count))
 
     # Done
     return 0

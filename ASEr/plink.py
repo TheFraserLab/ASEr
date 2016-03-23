@@ -8,7 +8,7 @@ Simple wrapper for some plink commands relevant to this pipleine.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-31-11 14:03
- Last modified: 2016-03-18 16:11
+ Last modified: 2016-03-22 17:20
 
    DESCRIPTION:
 
@@ -20,7 +20,7 @@ import os
 import sys
 
 # Us
-from .run import run_cmd
+from .run import cmd
 from .run import which
 from .run import open_zipped
 
@@ -36,7 +36,7 @@ __all__ = ['plink', 'is_recodeAD', 'recodeAD']
 
 
 def plink(args, plink_exec=None, logfile=None):
-    """Run plink with *args
+    """Run plink with *args.
 
     :args:       List, tuple, or string of arguments to pass to plink.
     :plink_exec: Location of plink, if not provided, PATH searched.
@@ -65,7 +65,7 @@ def plink(args, plink_exec=None, logfile=None):
         raise PlinkError('args must be string, tuple, or list')
 
     # Actually run the command
-    code, stdout, stderr = run_cmd(plink_exec, args)
+    code, stdout, stderr = cmd(plink_exec, args)
 
     # Check the results
     if code is not 0:

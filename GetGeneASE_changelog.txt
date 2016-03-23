@@ -1,0 +1,18 @@
+##############################
+# HISTORY AND THINGS TO FIX  #
+##############################
+# 2015.03.19 - Initial script
+#
+# 2015.03.20 - Outlined code and added in proper stranded counting.
+#
+# 2015.03.21 - Realized that keys in the output dicts. are not being initialized in all dicts.
+#              Fix.
+#
+# 2015.03.23 - Found some bugs in the way the script was outputting the SNP counts in the SNP
+#              string. Fixed.
+#            - Script fully functional.
+#
+# 2015.03.24 - Added in the option to output phased SNP-level ASE as this may be usefult for
+#              downstream analyses.
+#
+ 
