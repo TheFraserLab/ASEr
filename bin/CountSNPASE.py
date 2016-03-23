@@ -10,7 +10,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2015-03-16
- Last modified: 2016-03-23 01:03
+ Last modified: 2016-03-23 15:50
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -604,7 +604,10 @@ def main(argv=None):
 
         # Go through the potential SNP dictionary and choose one SNP at random
         # for those overlapping multiple SNPs
-        keys = list(potsnp_dict.keys())
+        if args.random_seed:  # Dictionaries are unordered, so must sort for consistent random seed output.
+            keys = sorted(list(potsnp_dict.keys()))
+        else:  # Because sorting is slow, only do it if random seed is set, slowdown is about 0.1s per 1 million reads..
+            keys = list(potsnp_dict.keys())
         for key in keys:
             snp = random.choice(potsnp_dict[key]).split('\t')
 
