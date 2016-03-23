@@ -10,7 +10,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2015-03-16
- Last modified: 2016-03-22 15:40
+ Last modified: 2016-03-23 01:03
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -25,6 +25,7 @@ import argparse            # Access to long command-line parsing
 import re                  # Access to REGEX splitting
 import random              # Access to random number generation
 from time import sleep     # Allow system pausing
+from multiprocessing import cpu_count
 from pysam import Samfile  # Read sam and bamfiles
 
 # Us
@@ -158,14 +159,6 @@ def count_reads(samfilename):
     return num_reads
 
 
-class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
-                      argparse.RawDescriptionHelpFormatter):
-
-    """Custom argparse formatting."""
-
-    pass
-
-
 def split_samfile(sam_file, splits, prefix='', path=''):
     """Take a sam file and split it splits number of times.
 
@@ -178,7 +171,7 @@ def split_samfile(sam_file, splits, prefix='', path=''):
     num_reads = int(int(num_lines)/splits) + 1
 
     # Get rid of starting path
-    sam_path, sam_name = os.path.split(sam_file)
+    sam_name = os.path.basename(sam_file)
 
     # Subset the SAM file into X number of jobs
     cnt      = 0
@@ -237,9 +230,12 @@ def main(argv=None):
     if not argv:
         argv = sys.argv[1:]
 
+    # Get the cluster type used to control arguments
+    cluster_type = cluster.get_cluster_environment()
+
     parser  = argparse.ArgumentParser(
         description=__doc__, add_help=False,
-        epilog=EPILOG, formatter_class=CustomFormatter)
+        epilog=EPILOG, formatter_class=run.CustomFormatter)
 
     req = parser.add_argument_group('Required arguments')
     req.add_argument('-m', '--mode',
@@ -257,8 +253,6 @@ def main(argv=None):
                      metavar='')
     uni.add_argument('-b', '--bam', action='store_true', dest='bam',
                      help='Mapped read file type is bam (auto-detected if *.bam)')
-    uni.add_argument('-t', '--single', action='store_true', dest='single',
-                     help='Mapped reads are single-end')
     uni.add_argument('-n', '--noclean', action='store_true',
                      help='Do not delete intermediate files (for debuging)')
     uni.add_argument('-h', '--help', action='help',
@@ -267,22 +261,25 @@ def main(argv=None):
     mult = parser.add_argument_group('Multi(plex) mode arguments')
     mult.add_argument('-j', '--jobs', type=int,
                       help='Divide into # of jobs', default=100, metavar='')
-    mult.add_argument('-w', '--walltime',
-                      help='Walltime for each job', default='3:00:00',
-                      metavar='')
-    mult.add_argument('-k', '--mem', dest='memory',
-                      help='Memory for each job', default='5000MB', metavar='')
-    mult.add_argument('--queue',
-                      help='Queue to submit jobs to', default='batch',
-                      metavar='')
-    mult.add_argument('--cluster', help='Which cluster to use',
-                      choices=['torque', 'slurm'], default='torque',
-                      metavar='')
+    if cluster_type == 'slurm' or cluster_type == 'torque':
+        mult.add_argument('-w', '--walltime',
+                          help='Walltime for each job', default='3:00:00',
+                          metavar='')
+        mult.add_argument('-k', '--mem', dest='memory', metavar='',
+                          help='Memory for each job', default='5000MB')
+        mult.add_argument('--queue',
+                          help='Queue to submit jobs to', default='batch',
+                          metavar='')
+        mult.add_argument('--cluster', choices=['torque', 'slurm', 'normal'],
+                          help='Which cluster to use, normal uses threads ' +
+                          'on this machine', default=cluster_type)
+    mult.add_argument('--threads', type=int, metavar='', default=cpu_count(),
+                      help='Max number of threads to run at a time ' +
+                      '(normal mode only).')
 
     single = parser.add_argument_group('Single mode arguments')
-    single.add_argument('-f', '--suffix',
-                        help='Suffix for multiplexing [set automatically]',
-                        default='', metavar='')
+    single.add_argument('-f', '--suffix', default='', metavar='',
+                        help='Suffix for multiplexing [set automatically]')
 
     logging = parser.add_argument_group('Logging options')
     logging.add_argument('-q', '--quiet', action='store_true',
@@ -341,39 +338,45 @@ def main(argv=None):
         logme.log('Splitting complete.')
 
         # Create PBS scripts and submit jobs to the cluster
-        subnoclean = '--noclean' if args.noclean else ''
-        job_ids = []
+        subnoclean = ' --noclean' if args.noclean else ''
         logme.log('Submitting split files to cluster')
+        jobs = []  # Hold job info for later checking
         for reads_file in reads_files:
             suffix = reads_file[-4:]
 
-            single_end = ' --single' if args.single else ''
             command = ("python2 " + program_name + " --mode single --snps " +
                        args.snps + " --reads " + reads_file + " --suffix " +
-                       suffix + " --prefix " + args.prefix + single_end +
+                       suffix + " --prefix " + args.prefix + subnoclean +
                        ' --bam')
 
-            job_ids.append(cluster.submit(command, name=prefix + suffix,
-                                          time=args.walltime, cores=1,
-                                          mem=args.memory,
-                                          partition=args.queue))
+            if cluster_type == 'normal':
+                jobs.append(cluster.submit(command, name=prefix + suffix,
+                                           threads=args.threads))
+            else:
+                jobs.append(cluster.submit(command, name=prefix + suffix,
+                                           time=args.walltime, cores=1,
+                                           mem=args.memory,
+                                           partition=args.queue))
             sleep(2)    # Pause for two seconds to make sure job is submitted
 
         # Now wait and check for all jobs to complete every so long
         logme.log('Submission done, waiting for jobs to complete.')
-        done = False
-        while done is False:
-            tot_done = 0
-            for i in range(1, args.jobs+1):
-                suffix = str(i).zfill(4)
 
-                if os.path.isfile(prefix + suffix + '_done'):
-                    tot_done += 1
+        # First wait for jobs in queue to complete
+        cluster.wait(jobs)
+        sleep(1)
 
-            if tot_done == args.jobs:
-                done = True
+        # Next, check if any jobs failed
+        failed = []
+        for i in range(1, args.jobs+1):
+            suffix = str(i).zfill(4)
+            if not os.path.isfile(prefix + suffix + '_done'):
+                failed.append(prefix + suffix)
 
-            sleep(10)
+        # If any jobs failed, terminate
+        if failed:
+            logme.log('Some jobs failed!', 'critical')
+            return -1
 
         logme.log('Jobs completed.')
         # Remove 'done' files in case we want to run again.
@@ -452,7 +455,9 @@ def main(argv=None):
 
         # Clean up intermediate files.
         if args.noclean is False:
-            os.system('rm {prefix}*err.txt {prefix}*out.txt {prefix}*COUNTS_* {prefix}*split_sam_* *.qsub'.format(prefix=prefix))
+            cluster.clean()
+            os.system('rm {prefix}*COUNTS_* {prefix}*split_sam_*'.format(
+                prefix=prefix))
 
     ###############
     # SINGLE MODE #
@@ -478,7 +483,6 @@ def main(argv=None):
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
         in_sam     = Samfile(sam_file, mode)
-        num_reads  = count_reads(sam_file)
         references = in_sam.references  # Faster to make a copy of references.
 
         # Trackers to count how many reads are lost at each step
@@ -505,45 +509,19 @@ def main(argv=None):
                     # Remember that, for now, we're not allowing reads that
                     # overlap insertions/deletions.
 
-                    chr  = references[line.rname]
-                    pos  = line.pos
-                    read = line.seq
-                    flag = line.flag
-
-                    read_seq = ''
+                    chrom = references[line.rname]
+                    pos   = line.pos
+                    read  = line.seq
 
                     # We're assuming
                     # correct mapping such that FIRST MATES on the NEGATIVE
                     # STRAND are NEGATIVE, while SECOND MATES on the NEGATIVE
                     # STRAND are POSITIVE.
 
-                    if args.single is True:
-                        if flag.is_reverse:  # RYO UPDATED HERE
-                            orientation = '-'
-
-                    if args.single is True:
-                        if flag.is_reverse:  # RYO UPDATED HERE
-                            orientation = '-'
-                        else:
-                            orientation = '+'
-
+                    if line.is_reverse:
+                        orientation = '-'
                     else:
-                        if flag.is_read1:        # First mate
-                            if flag.is_reverse:  # If reverse: negative strand
-                                orientation = '-'
-                            else:
-                                orientation = '+'
-
-                        elif flag.is_read2:      # Second mate
-                            if flag.is_reverse:  # If reverse: positive strand
-                                orientation = '+'
-                            else:
-                                orientation = '-'
-                        else:
-                            sys.stderr.write(line)
-                            raise Exception('flag {} '.format(flag) +
-                                            'contains no mate data. Is your '
-                                            'data single end?')
+                        orientation = '+'
 
                     # Parse the CIGAR string
                     cigar_types, cigar_vals = split_CIGAR(cigarstring)
@@ -585,14 +563,14 @@ def main(argv=None):
                         snp_count += 1
 
                         # RYO: START EDIT - Implemented Filter
-                        posVal = line.rname + '|' + str(i)
+                        posVal = line.reference_name + '|' + str(i)
                         if posVal not in snps:
                             nosnp_skip += 1
                             continue
                         # RYO: END EDIT - Implmented Filter
 
                         snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(
-                            chr=chr, i=i, snp_pos=snp_pos[i],
+                            chr=chrom, i=i, snp_pos=snp_pos[i],
                             orientation=orientation)
                         if line.qname in potsnp_dict:
                             if snp not in potsnp_dict[line.qname]:
