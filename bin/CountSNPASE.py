@@ -255,6 +255,8 @@ def main(argv=None):
                      help='Mapped read file type is bam (auto-detected if *.bam)')
     uni.add_argument('-n', '--noclean', action='store_true',
                      help='Do not delete intermediate files (for debuging)')
+    uni.add_argument('-R', '--random-seed', default=None, type=int,
+                     help='Set the state of the randomizer (for testing)')
     uni.add_argument('-h', '--help', action='help',
                      help='show this help message and exit')
 
@@ -291,6 +293,9 @@ def main(argv=None):
                          'STDERR')
 
     args = parser.parse_args()
+    if args.random_seed is not None:
+        random.seed(args.random_seed)
+        print("Seed: ", args.random_seed, random.getstate()[1][:10])
 
     ###########################################################################
     #                            File Preparations                            #
