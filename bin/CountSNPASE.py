@@ -482,7 +482,7 @@ def main(argv=None):
         potsnp_dict = {}
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
-        in_sam     = Samfile(sam_file, mode)
+        in_sam     = Samfile(args.reads, mode)
         references = in_sam.references  # Faster to make a copy of references.
 
         # Trackers to count how many reads are lost at each step
