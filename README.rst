@@ -56,6 +56,58 @@ Pipeline Flow
 
   samtools sort -n [DUPLICATES REMOVED].bam [SORTED PREFIX]
 
+***************************
+create_individual_snp_files
+***************************  
+  
+- Next we need to generate custom bed files for every individual. These files must contain
+  only exonic SNPs that are heterozygous in that individual. This is necessary because
+  CountSNPASE will randomly choose a SNP to count if more than one SNP is present in a read.
+  As some RNA-seq reads span non-coding sequence, this can lead to SNP counts that cannot
+  contribute to gene-level counts. In addition, no homozygous SNP can possibly contribute
+  to ASE counts, and so randomly picking a homozygous SNP over a heterozygous SNP will lead
+  to lower counts.
+  
+  These bed files can be generated easily by the ``create_individual_snp_files`` you should
+  provide the same SNP bed file that you used in the mapping step script::
+  
+    usage:  create_individual_snp_files [-g] [-o outdir] [-j threads] plink snps
+            create_individual_snp_files [-g] [-o outdir] [-j threads] --snpfile snp_bed --exonfile exonfile plink
+            create_individual_snp_files --help
+
+    Reference Files (positional):
+      plink                The plink file, can be a prefix or full path
+      snps                 A bed file of exonic SNPs. If not available, use the
+                          --snpfile and --exonfile flags to generate this list on
+                          the fly
+
+    Generate exonic SNP list:
+      [Use if exon_snp file doesn't already exist]
+
+      --snpfile snp_bed    A bed file of snps (gzipped OK)
+      --exonfile exon_bed  A bed file of exons (gzipped OK).
+
+    Filter Individuals:
+      -f , --filter        List of individuals to keep. Either comma-separated or
+                          as a file (newline separated
+      --split_name         Split the individual name in plink on this character
+                          (must be a single character)
+      --split_index        Index of split name to compare individuals to
+
+    Multi(plex) mode arguments:
+      -j , --jobs          Divide into # of jobs
+      -w , --walltime      Walltime for each job
+      -k , --mem           Memory for each job in MB (int)
+      --queue              Queue to submit jobs to
+      --cluster            Which cluster to use
+
+    Optional Arguments:
+      -o , --outdir        The output directory to write files to
+      -g, --gzip           gzip compress the output files
+      -q, --quiet          Quiet output
+      -v, --verbose        Verbose output
+      -h, --help           Show this help and exit.
+
   
 ***********
 CountSNPASE
@@ -63,64 +115,110 @@ CountSNPASE
 
 - Now we can count reads overlapping each SNP. The CountSNPASE.py script does this::
   
-    usage: CountSNPASE.py -m mode -s <BED> -r <[S/B]AM> [-p] [-b] [-t] [-n] [-h] [-j] [-w] [-k] [-f]
+    usage: CountSNPASE.py -m mode -s <BED> -r <[S/B]AM> [-p] [-b] [-n] [-q] [-v]
+
+    Count number of reads overlapping each SNP in a sam/bam file.
 
     Required arguments:
       -m mode, --mode mode  Operation mode (default: None)
       -s <BED>, --snps <BED>
-              SNP BED file (default: None)
+                            SNP BED file (default: None)
       -r <[S/B]AM>, --reads <[S/B]AM>
-              Mapped reads file [sam or bam] (default: None)
+                            Mapped reads file [sam or bam] (default: None)
 
     Universal optional arguments:
       -p , --prefix         Prefix for temp files and output (default: TEST)
-      -b, --bam             Mapped read file type is bam (auto-detected if \*.bam)
-                (default: False)
-      -t, --single          Mapped reads are single-end (default: False)
+      -b, --bam             Mapped read file type is bam (auto-detected if *.bam)
+                            (default: False)
       -n, --noclean         Do not delete intermediate files (for debuging)
-                (default: False)
+                            (default: False)
       -h, --help            show this help message and exit
 
     Multi(plex) mode arguments:
       -j , --jobs           Divide into # of jobs (default: 100)
       -w , --walltime       Walltime for each job (default: 3:00:00)
       -k , --mem            Memory for each job (default: 5000MB)
+      --queue               Queue to submit jobs to (default: batch)
+      --cluster {torque,slurm,normal}
+                            Which cluster to use, normal uses threads on this
+                            machine (default: torque)
+      --threads             Max number of threads to run at a time (normal mode
+                            only). (default: 24)
 
     Single mode arguments:
-      -f , --suffix         Suffix for multiplexing [set automatically] (default:)
+      -f , --suffix         Suffix for multiplexing [set automatically] (default:
+                            )
+
+    Logging options:
+      -q, --quiet           Quiet mode, only prints warnings. (default: False)
+      -v, --verbose         Verbose mode, prints debug info too. (default: False)
+      --logfile LOGFILE     Logfile to write messages too, default is STDERR
+                            (default: None)
 
     Detailed description of inputs/outputs follows:
 
-    -s/--snps 
-      A tab-delimited BED file with positions of masked SNPs of interest as follows:
+    -s/--snps
+        A tab-delimited BED file with positions of masked SNPs of interest as follows:
 
-      [CHR]  [0 POSITION]  [1 POSITION]
+        [CHR]    [0 POSITION]    [1 POSITION]
 
-      Additional columns are ignored.
+        Additional columns are ignored.
 
     -r/--reads
-      A SAM or BAM file containing all of the reads masked to the masked genome. The file
-      shound have all duplicates removed and MUST be sorted by read name 
-      (i.e. samtools sort -n ). 
+        A SAM or BAM file containing all of the reads masked to the masked genome. The file
+        shound have all duplicates removed and MUST be sorted by read name
+        (i.e. samtools sort -n ).
 
     -m/--mode
-      The script can be run in two modes. In 'single' mode, the entire SNP counting is 
-      performed locally. In 'multi' mode, the read file will be split up by the number of
-      specified jobs on the cluster. This is much faster for large SAM/BAM files.
-     
+        The script can be run in two modes. In 'single' mode, the entire SNP counting is performed
+        locally. In 'multi' mode, the read file will be split up by the number of specified jobs on
+        the cluster. This is much faster for large SAM/BAM files.
+
     OUTPUT:
 
-    The output of the script is a tab-delimited text file, [PREFIX]_SNP_COUNTS.txt, which 
-    contains the following columns:
+    The output of the script is a tab-delimited text file, [PREFIX]_SNP_COUNTS.txt, which contains the
+    following columns:
 
-    CHR            Chromosome where SNP is found
-    POSITION       1-based position of SNP
-    POS_A|C|G|T    Count of reads containing A|C|G|T bases at the SNP position on the POSITIVE strand
-    NEG_A|C|G|T    Count of reads containing A|C|G|T bases at the SNP position on the NEGATIVE strand
-    SUM_POS_READS  Sum of all reads assigned to the SNP on POSITIVE strand  
-    SUM_NEG_READS  Sum of all reads assigned to the SNP on NEGATIVE strand  
-    SUM_READS      Sum of all reads assigned to the SNP
-  
+    CHR		        Chromosome where SNP is found
+    POSITION	    1-based position of SNP
+    POS_A|C|G|T	  Count of reads containing A|C|G|T bases at the SNP position on the POSITIVE strand
+    NEG_A|C|G|T	  Count of reads containing A|C|G|T bases at the SNP position on the NEGATIVE strand
+    SUM_POS_READS	Sum of all reads assigned to the SNP on POSITIVE strand
+    SUM_NEG_READS	Sum of all reads assigned to the SNP on NEGATIVE strand
+    SUM_READS	    Sum of all reads assigned to the SNP
+
+Note: this script has a multiplexing mode that can dramatically accelerate its performance by splitting
+sam/bam files and running in parallel on all the fragments. This mode will can be enabled with the
+``-m multi`` argument. On a simple system it will just use threads up to a maximum of ``--threads``. On
+a system with torque or slurm, it will submit its jobs to those systems. The cluster system is
+auto-detected, but you will need to provide the queue/partition to run in and other submission variables.
+
+*****************
+create_phased_bed
+*****************
+
+- To run GetGeneASE, a bed file of phased SNPs is required. This can be created by running shapeit on the
+  plink data of your individuals. Note: you may wish to run impute2 on your data also ot increase your
+  power to detect SNPs.
+
+- To create the bed file from the .haps file output by shapeit, run the ``create_phase_bed`` script::
+
+    usage:  create_phased_bed -i hap_file [hap_file...] -o bed_file
+            cat hap_file | create_phased_bed > bed_file
+            create_phased_bed --help
+
+    Create a phased SNP bed file from haplotype data.
+
+    Files:
+      -i infile [infile ...], --hap_files infile [infile ...]
+                            List of haps files, default STDIN
+      -o , --bed_file       Output bed file, default STDOUt, gzipped OK
+
+    Optional Arguments:
+      --chr_format {num,chr}
+                            Convert chromsome to number only (num) or to chr#
+                            (chr)
+      -h, --help            Show this help and exit.
 
 **********  
 GetGeneASE
