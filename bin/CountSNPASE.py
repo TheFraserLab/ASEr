@@ -10,7 +10,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2015-03-16
- Last modified: 2016-03-23 01:03
+ Last modified: 2016-03-23 15:16
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -587,11 +587,11 @@ def main(argv=None):
         in_sam.close()
 
         # Log all of the skipped reads
-        logme.log('Total reads: {}'.format(count), 'warn')
-        logme.log('Reads skipped for indels: {}'.format(indel_skip), 'warn')
-        logme.log('Total SNPs checked: {}'.format(snp_count), 'warn')
-        logme.log('SNPs not in SNP list: {}'.format(nosnp_skip), 'warn')
-        logme.log('Ryo filter: {}'.format(ryo_filter), 'warn')
+        logme.log('Total reads: {}'.format(count), 'debug')
+        logme.log('Reads skipped for indels: {}'.format(indel_skip), 'debug')
+        logme.log('Total SNPs checked: {}'.format(snp_count), 'debug')
+        logme.log('SNPs not in SNP list: {}'.format(nosnp_skip), 'debug')
+        logme.log('Ryo filter: {}'.format(ryo_filter), 'debug')
 
         # Initialize the counting dictionaries
         pos_counts = {}
