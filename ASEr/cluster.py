@@ -7,7 +7,7 @@ Submit jobs to slurm or torque, or with multiprocessing.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-23 00:50
+ Last modified: 2016-03-23 01:25
 
    DESCRIPTION: Allows simple job submission with either torque, slurm, or
                 with the multiprocessing module.
@@ -118,7 +118,7 @@ def wait(jobs):
     for job in jobs:
         if not isinstance(job, (str, int, pool.ApplyResult)):
             raise ClusterError('job must be int, string, or ApplyResult, ' +
-                                'is {}'.format(type(job)))
+                               'is {}'.format(type(job)))
 
     if QUEUE == 'normal':
         for job in jobs:
@@ -130,7 +130,7 @@ def wait(jobs):
         # sometimes
         sleep(5)
 
-        s = re.compile(r'  +')  # For splitting qstat output
+        s = re.compile(r' +')  # For splitting qstat output
         # Jobs must be strings for comparison operations
         jobs = [str(j) for j in jobs]
         while True:
@@ -144,7 +144,7 @@ def wait(jobs):
                 sleep(2)
                 continue
             # Check header
-            if not re.split(r' {2,100}', q[3])[9]== 'S':
+            if not re.split(r' {2,100}', q[3])[9] == 'S':
                 raise ClusterError('Unrecognized torque qstat format')
             # Build a list of completed jobs
             complete = []
@@ -298,7 +298,7 @@ def submit_file(script_file, name=None, dependencies=None, threads=None):
         if not POOL:
             POOL = Pool(threads) if threads else Pool()
         command = 'bash {}'.format(script_file)
-        args = dict(stdout=name + '.cluster.out',stderr=name + '.cluster.err')
+        args = dict(stdout=name + '.cluster.out', stderr=name + '.cluster.err')
         return POOL.apply_async(run.cmd, (command,), args)
 
 
@@ -328,7 +328,7 @@ def make_job_file(command, name, time=None, cores=1, mem=None, partition=None,
 
     # Sanitize arguments
     name    = str(name)
-    cores   = cores if cores else 1  #In case cores are passed as None
+    cores   = cores if cores else 1  # In case cores are passed as None
     modules = [modules] if isinstance(modules, str) else modules
     usedir  = os.path.abspath(path) if path else os.path.abspath('.')
     precmd  = ''
