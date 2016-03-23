@@ -8,7 +8,7 @@ File management and execution functions.
        LICENSE: MIT License, property of Stanford, use as you wish
        VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-21 13:54
+ Last modified: 2016-03-22 22:19
 
    DESCRIPTION: Run commands with run_cmd, search the PATH with which.
 
@@ -19,12 +19,38 @@ File management and execution functions.
 import os
 import gzip
 import bz2
+import argparse
 from subprocess import Popen
 from subprocess import PIPE
 
 from . import logme
 
-__all__ = ['run_cmd', 'which', 'open_zipped']
+__all__ = ['cmd', 'which', 'open_zipped']
+
+
+###############################################################################
+#                               Useful Classes                                #
+###############################################################################
+
+
+class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
+                      argparse.RawDescriptionHelpFormatter):
+
+    """Custom argparse formatting."""
+
+    pass
+
+
+class CommandError(Exception):
+
+    """A custom exception."""
+
+    pass
+
+
+###############################################################################
+#                              Useful Functions                               #
+###############################################################################
 
 
 def open_zipped(infile, mode='r'):
@@ -49,22 +75,35 @@ def open_zipped(infile, mode='r'):
         return open(infile, mode)
 
 
-def run_cmd(cmd, args):
+def cmd(cmd, args=None, stdout=None, stderr=None):
     """Run command and return status, output, stderr.
 
-    cmd:  Path to executable.
-    args: Tuple of arguments.
+    cmd:    Path to executable.
+    args:   Tuple of arguments.
+    stdout: File or open file like object to write STDOUT to.
+    stderr: File or open file like object to write STDERR to.
     """
-    args = (cmd,) + args
-    pp = Popen(args, shell=False, universal_newlines=True,
+    if args:
+        if isinstance(args, list):
+            args = tuple(list)
+        if not isinstance(args, tuple):
+            raise CommandError('args must be tuple')
+        args = (cmd,) + args
+    else:
+        args = (cmd,)
+    logme.log('Running {} as {}'.format(cmd, args), 'debug')
+    pp = Popen(args, shell=True, universal_newlines=True,
                stdout=PIPE, stderr=PIPE)
     out, err = pp.communicate()
     code = pp.returncode
-    if out[-1:] == '\n':
-        out = out[:-1]
-    if err[-1:] == '\n':
-        err = err[:-1]
-    return code, out, err
+    logme.log('{} completed with code {}'.format(cmd, code), 'debug')
+    if stdout:
+        with open_zipped(stdout, 'w') as fout:
+            fout.write(out)
+    if stderr:
+        with open_zipped(stderr, 'w') as fout:
+            fout.write(err)
+    return code, outrstrip(), err.rstrip()
 
 
 def is_exe(fpath):

@@ -7,7 +7,7 @@ Submit jobs to slurm or torque, or with multiprocessing.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-22 19:06
+ Last modified: 2016-03-23 00:34
 
    DESCRIPTION: Allows simple job submission with either torque, slurm, or
                 with the multiprocessing module.
@@ -49,9 +49,11 @@ Submit jobs to slurm or torque, or with multiprocessing.
 ============================================================================
 """
 import os
+import re
+from time import sleep
 from textwrap import dedent
-from subprocess import check_output
-from multiprocessing import Pool
+from subprocess import check_output, CalledProcessError
+from multiprocessing import Pool, pool
 
 # Us
 from ASEr import run
@@ -96,6 +98,92 @@ def get_cluster_environment():
     return QUEUE
 
 
+#####################################
+#  Wait for cluster jobs to finish  #
+#####################################
+
+
+def wait(jobs):
+    """Wait for jobs to finish.
+
+    :jobs:    A single job or list of jobs to wait for. With torque or slurm,
+              these should be job IDs, with normal mode, these are
+              multiprocessing job objects (returned by submit())
+    """
+    check_queue()  # Make sure the QUEUE is usable
+
+    # Sanitize argument
+    if not isinstance(jobs, (list, tuple)):
+        jobs = [jobs]
+    for job in jobs:
+        if not isinstance(job, (str, int, pool.ApplyResult)):
+            raise ClusterError('job must be int, string, or ApplyResult, ' +
+                                'is {}'.format(type(job)))
+
+    if QUEUE == 'normal':
+        for job in jobs:
+            if not isinstance(job, pool.ApplyResult):
+                raise ClusterError('jobs must be ApplyResult objects')
+            job.wait()
+    elif QUEUE == 'torque':
+        # Wait for 5 seconds before checking, as jobs take a while to be queued
+        # sometimes
+        sleep(5)
+
+        s = re.compile(r'  +')  # For splitting qstat output
+        # Jobs must be strings for comparison operations
+        jobs = [str(j) for j in jobs]
+        while True:
+            c = 0
+            try:
+                q = check_output(['qstat', '-a']).decode().rstrip().split('\n')
+            except CalledProcessError:
+                if c == 5:
+                    raise
+                c += 1
+                sleep(2)
+                continue
+            # Check header
+            if not re.split(r' {2,100}', q[3])[9]== 'S':
+                raise ClusterError('Unrecognized torque qstat format')
+            # Build a list of completed jobs
+            complete = []
+            for j in q[5:]:
+                i = s.split(j)
+                if i[9] == 'C':
+                    complete.append(i[0].split('.')[0])
+            # Build a list of all jobs
+            all  = [s.split(i)[0].split('.')[0] for i in q[5:]]
+            # Trim down job list
+            jobs = [i for i in jobs if i in all]
+            jobs = [i for i in jobs if i not in complete]
+            if len(jobs) == 0:
+                return
+            sleep(2)
+    elif QUEUE == 'slurm':
+        # Wait for 5 seconds before checking, as jobs take a while to be queued
+        # sometimes
+        sleep(5)
+
+        # Jobs must be strings for comparison operations
+        jobs = [str(j) for j in jobs]
+        while True:
+            # Slurm allows us to get a custom output for faster parsing
+            q = check_output(
+                ['squeue', '-h', '-o', "'%A,%t'"]).decode().rstrip().split(',')
+            # Build a list of jobs
+            complete = [i[0] for i in q if i[1] == 'CD']
+            failed   = [i[0] for i in q if i[1] == 'F']
+            all      = [i[0] for i in q]
+            # Trim down job list, ignore failures
+            jobs = [i for i in jobs if i not in all]
+            jobs = [i for i in jobs if i not in complete]
+            jobs = [i for i in jobs if i not in failed]
+            if len(jobs) == 0:
+                return
+            sleep(2)
+
+
 #########################
 #  Submissions scripts  #
 #########################
@@ -128,12 +216,13 @@ def submit(command, name, threads=None, time=None, cores=None, mem=None,
     if QUEUE == 'slurm' or QUEUE == 'torque':
         return submit_file(make_job_file(command, name, time, cores,
                                          mem, partition, modules, path),
-                           dependencies)
+                           dependencies=dependencies)
     elif QUEUE == 'normal':
-        return submit_file(make_job_file(command), threads)
+        return submit_file(make_job_file(command, name), name=name,
+                           threads=threads)
 
 
-def submit_file(script_file, dependencies=None, threads=None):
+def submit_file(script_file, name=None, dependencies=None, threads=None):
     """Submit a job file to the cluster.
 
     If QUEUE is torque, qsub is used; if QUEUE is slurm, sbatch is used;
@@ -146,10 +235,15 @@ def submit_file(script_file, dependencies=None, threads=None):
     :threads:      Total number of threads to use at a time, defaults to all.
                    ONLY USED IN NORMAL MODE
 
+    :name:         The name of the job, only used in normal mode.
+
     :returns:      job number for torque or slurm
-                   0 for normal mode
+                   multiprocessing job object for normal mode
     """
     check_queue()  # Make sure the QUEUE is usable
+
+    # Sanitize arguments
+    name = str(name)
 
     # Check dependencies
     if dependencies:
@@ -166,7 +260,19 @@ def submit_file(script_file, dependencies=None, threads=None):
             args = ['sbatch', dependencies, script_file]
         else:
             args = ['sbatch', script_file]
-        return int(check_output(args)).decode().rstrip().split(' ')[-1])
+        # Try to submit job 5 times
+        count = 0
+        while True:
+            try:
+                job = int(check_output(args).decode().rstrip().split(' ')[-1])
+            except CalledProcessError:
+                if count == 5:
+                    raise
+                count += 1
+                sleep(1)
+                continue
+            break
+        return job
     elif QUEUE == 'torque':
         if dependencies:
             dependencies = '-W depend={}'.format(
@@ -174,15 +280,26 @@ def submit_file(script_file, dependencies=None, threads=None):
             args = ['qsub', dependencies, script_file]
         else:
             args = ['qsub', script_file]
-        return int(check_output(args)).decode().rstrip().split('.')[0])
+        # Try to submit job 5 times
+        count = 0
+        while True:
+            try:
+                job = int(check_output(args).decode().rstrip().split('.')[0])
+            except CalledProcessError:
+                if count == 5:
+                    raise
+                count += 1
+                sleep(1)
+                continue
+            break
+        return job
     elif QUEUE == 'normal':
         global POOL
         if not POOL:
             POOL = Pool(threads) if threads else Pool()
-        args = {'cmd': command, 'stdout': name + '.out',
-                'stderr': name + '.err'}
-        POOL.apply_async(run.cmd, args)
-        return 0
+        command = 'bash {}'.format(script_file)
+        args = dict(stdout=name + '.cluster.out',stderr=name + '.cluster.err')
+        return POOL.apply_async(run.cmd, (command,), args)
 
 
 #########################
@@ -209,16 +326,18 @@ def make_job_file(command, name, time=None, cores=1, mem=None, partition=None,
     """
     check_queue()  # Make sure the QUEUE is usable
 
+    # Sanitize arguments
+    name    = str(name)
+    cores   = cores if cores else 1  #In case cores are passed as None
     modules = [modules] if isinstance(modules, str) else modules
-    usedir = os.path.abspath(path) if path else os.path.abspath('.')
-    precmd = ''
+    usedir  = os.path.abspath(path) if path else os.path.abspath('.')
+    precmd  = ''
     for module in modules:
-        precmd += 'module load {}\n'.format(module))
+        precmd += 'module load {}\n'.format(module)
     precmd += dedent("""\
         cd {}
-        mkdir -p $LOCAL_SCRATCH)
         date +'%d-%H:%M:%S'
-        echo "Running {}
+        echo "Running {}"
         """.format(usedir, name))
     pstcmd = dedent("""\
         exitcode=$?
@@ -229,7 +348,7 @@ def make_job_file(command, name, time=None, cores=1, mem=None, partition=None,
         fi
         """)
     if QUEUE == 'slurm':
-        scrpt = os.path.join(usedir, '{}.sbatch'.format(name))
+        scrpt = os.path.join(usedir, '{}.cluster.sbatch'.format(name))
         with open(scrpt, 'w') as outfile:
             outfile.write('#!/bin/bash\n')
             if partition:
@@ -240,18 +359,19 @@ def make_job_file(command, name, time=None, cores=1, mem=None, partition=None,
                 outfile.write('#SBATCH --time={}\n'.format(time))
             if mem:
                 outfile.write('#SBATCH --mem={}\n'.format(mem))
-            outfile.write('#SBATCH -o {}.out\n'.format(name))
-            outfile.write('#SBATCH -e {}.err\n'.format(name))
+            outfile.write('#SBATCH -o {}.cluster.out\n'.format(name))
+            outfile.write('#SBATCH -e {}.cluster.err\n'.format(name))
             outfile.write('cd {}\n'.format(usedir))
             outfile.write('srun bash {}.script\n'.format(
                 os.path.join(usedir, name)))
-        with open(os.path.join(usedir, name + '.script', 'w')) as outfile:
+        with open(os.path.join(usedir, name + '.script'), 'w') as outfile:
             outfile.write('#!/bin/bash\n')
+            outfile.write('mkdir -p $LOCAL_SCRATCH\n')
             outfile.write(precmd)
             outfile.write(command + '\n')
             outfile.write(pstcmd)
     elif QUEUE == 'torque':
-        scrpt = os.path.join(usedir, '{}.qsub'.format(name))
+        scrpt = os.path.join(usedir, '{}.cluster.qsub'.format(name))
         with open(scrpt, 'w') as outfile:
             outfile.write('#!/bin/bash\n')
             if partition:
@@ -261,18 +381,19 @@ def make_job_file(command, name, time=None, cores=1, mem=None, partition=None,
                 outfile.write('#PBS -l walltime={}\n'.format(time))
             if mem:
                 outfile.write('#PBS mem={}MB\n'.format(mem))
-            outfile.write('#PBS -o {}.out\n'.format(name))
-            outfile.write('#PBS -e {}.err\n\n'.format(name))
+            outfile.write('#PBS -o {}.cluster.out\n'.format(name))
+            outfile.write('#PBS -e {}.cluster.err\n\n'.format(name))
+            outfile.write('mkdir -p $LOCAL_SCRATCH\n')
             outfile.write(precmd)
             outfile.write(command + '\n')
             outfile.write(pstcmd)
     elif QUEUE == 'normal':
-        scrpt = os.path.join(usedir, '{}.sh'.format(name))
+        scrpt = os.path.join(usedir, '{}.cluster'.format(name))
         with open(scrpt, 'w') as outfile:
+            outfile.write('#!/bin/bash\n')
             outfile.write(precmd)
             outfile.write(command + '\n')
             outfile.write(pstcmd)
-    else:
 
     # Return the path to the script
     return scrpt
@@ -307,7 +428,7 @@ def clean(directory='.'):
     elif QUEUE == 'torque':
         extensions.append('.cluster.qsub')
 
-    files = [i for i inos.listdir(os.path.abspath(directory)) \
+    files = [i for i in os.listdir(os.path.abspath(directory))
              if os.path.isfile(i)]
 
     if not files:
@@ -333,6 +454,7 @@ class ClusterError(Exception):
     """A custom exception for cluster errors."""
 
     pass
+
 
 def check_queue():
     """Raise exception if QUEUE is incorrect."""
