@@ -604,7 +604,7 @@ def main(argv=None):
 
         # Go through the potential SNP dictionary and choose one SNP at random
         # for those overlapping multiple SNPs
-        if args.random_seed:  # Dictionaries are unordered, so must sort for consistent random seed output.
+        if args.random_seed is not None:  # Dictionaries are unordered, so must sort for consistent random seed output.
             keys = sorted(list(potsnp_dict.keys()))
         else:  # Because sorting is slow, only do it if random seed is set, slowdown is about 0.1s per 1 million reads..
             keys = list(potsnp_dict.keys())
