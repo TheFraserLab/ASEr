@@ -467,7 +467,7 @@ def main(argv=None):
     # Print the output
     keys = sorted(list(features.keys()))
 
-    with open(args.outfile) as outfile:
+    with open(args.outfile, 'w') as outfile:
         # Header
         outfile.write('FEATURE\tCHROMOSOME\tORIENTATION\tSTART-STOP\t' +
                       'REFERENCE_COUNTS\tALT_COUNTS\tTOTAL_SNPS\tREF_BIASED\t' +
