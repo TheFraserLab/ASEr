@@ -7,7 +7,7 @@ Submit jobs to slurm or torque, or with multiprocessing.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-23 00:34
+ Last modified: 2016-03-23 00:50
 
    DESCRIPTION: Allows simple job submission with either torque, slurm, or
                 with the multiprocessing module.
@@ -161,9 +161,9 @@ def wait(jobs):
                 return
             sleep(2)
     elif QUEUE == 'slurm':
-        # Wait for 5 seconds before checking, as jobs take a while to be queued
+        # Wait for 2 seconds before checking, as jobs take a while to be queued
         # sometimes
-        sleep(5)
+        sleep(2)
 
         # Jobs must be strings for comparison operations
         jobs = [str(j) for j in jobs]
