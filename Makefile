@@ -22,6 +22,8 @@ testdir/pass_getgenease: testdir/pass_countsnpase testdir/ref.gtf testdir/varian
 		--gff testdir/ref.gtf \
 		-o testdir/gene_ase.tsv \
 		--writephasedsnps
+	diff -q testdir/gene_ase.tsv testdir/reference_gene_ase.tsv
+	touch $@
 	
 
 
@@ -36,7 +38,7 @@ testdir/variants.bed : | testdir
 	wget -O $@ http://web.stanford.edu/~pcombs/asetest/variants.bed
 
 testdir/reference_SNP_COUNTS.txt : | testdir
-	@echo "TODO: Generate this"
+	wget -O $@ http://web.stanford.edu/~pcombs/asetest/reference_SNP_COUNTS.txt
 
 testdir/reference_gene_ase.tsv :  | testdir
-	@echo "TODO: Generate this"
+	wget -O $@ http://web.stanford.edu/~pcombs/asetest/reference_gene_ase.tsv
