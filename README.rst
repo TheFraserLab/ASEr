@@ -4,11 +4,30 @@ ASEr
 
 Get ASE counts from BAMs or raw fastq data -- repackage of pipeline by Carlo Artieri
 
-Scripts: MaskReferencefromBED.pl, CountSNPASE.py, GetGeneASE.py
+Scripts: MaskReferencefromBED.pl, create_individual_snp_files, CountSNPASE.py, create_phased_bed, GetGeneASE.py
 
 Required software installed in PATH:
-  samtools
-  STAR (for mapping, but can use others)
+  - samtools
+  - STAR (for mapping, but can use others)
+
+Required python libraries:
+  - pysam
+  - pybedtools
+
+.. contents:: **Contents**
+
+Installation
+------------
+
+Simple install procedure::
+
+    git clone https://github.com/TheFraserLab/ASEr.git
+    cd ASEr
+    python ./setup.py install
+
+Alternatively, to install without root privileges::
+
+    python ./setup.py install --user
 
 Pipeline Flow
 -------------
