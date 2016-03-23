@@ -18,7 +18,7 @@ for i in listdir(here + '/bin'):
 
 setup(
     name='ASEr',
-    version='0.1',
+    version='0.2',
     description='Get ASE counts from BAMs or raw fastq data -- repackage of pipeline by Carlo Artieri ',
     long_description=long_description,
     url='https://github.com/MikeDacre/ASEr',
