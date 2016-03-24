@@ -45,7 +45,7 @@ setup(
 
     keywords='ASE allele-specific expression RNA-seq fastq BAM SAM SNP',
 
-    install_requires=['pybedtools', 'pysam'],
+    install_requires=['pybedtools', 'pysam', 'pandas'],
     scripts=scpts,
     packages=['ASEr']
 
