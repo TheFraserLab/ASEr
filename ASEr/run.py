@@ -6,13 +6,8 @@ File management and execution functions.
         AUTHOR: Michael D Dacre, mike.dacre@gmail.com
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
-       VERSION: 0.1
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-22 22:19
-
-   DESCRIPTION: Run commands with run_cmd, search the PATH with which.
-
-         USAGE: Import as a module or run as a script
+ Last modified: 2016-03-24 13:50
 
 ============================================================================
 """
@@ -75,28 +70,28 @@ def open_zipped(infile, mode='r'):
         return open(infile, mode)
 
 
-def cmd(cmd, args=None, stdout=None, stderr=None):
+def cmd(command, args=None, stdout=None, stderr=None):
     """Run command and return status, output, stderr.
 
-    cmd:    Path to executable.
-    args:   Tuple of arguments.
-    stdout: File or open file like object to write STDOUT to.
-    stderr: File or open file like object to write STDERR to.
+    :command: Path to executable.
+    :args:    Tuple of arguments.
+    :stdout:  File or open file like object to write STDOUT to.
+    :stderr:  File or open file like object to write STDERR to.
     """
     if args:
         if isinstance(args, list):
             args = tuple(list)
         if not isinstance(args, tuple):
             raise CommandError('args must be tuple')
-        args = (cmd,) + args
+        args = (command,) + args
     else:
-        args = (cmd,)
-    logme.log('Running {} as {}'.format(cmd, args), 'debug')
+        args = (command,)
+    logme.log('Running {} as {}'.format(command, args), 'debug')
     pp = Popen(args, shell=True, universal_newlines=True,
                stdout=PIPE, stderr=PIPE)
     out, err = pp.communicate()
     code = pp.returncode
-    logme.log('{} completed with code {}'.format(cmd, code), 'debug')
+    logme.log('{} completed with code {}'.format(command, code), 'debug')
     if stdout:
         with open_zipped(stdout, 'w') as fout:
             fout.write(out)
@@ -120,7 +115,7 @@ def which(program):
     :program: Name of executable to test.
     :returns: Path to the program or None on failure.
     """
-    fpath, fname = os.path.split(program)
+    fpath = os.path.split(program)
     if fpath:
         if is_exe(program):
             return os.path.abspath(program)
@@ -184,34 +179,33 @@ def split_file(infile, parts, outpath='', keep_header=True):
     num_lines   = int(int(num_lines)/int(parts)) + 1
 
     # Subset the file into X number of jobs, maintain extension
-    cnt      = 0
-    currjob  = 1
-    suffix   = '.split_' + str(currjob).zfill(4) + '.' + infile.split('.')[-1]
-    file_path, file_name = os.path.split(infile)
-    run_file = os.path.join(outpath, file_name + suffix)
-    outfiles = [run_file]
+    cnt       = 0
+    currjob   = 1
+    suffix    = '.split_' + str(currjob).zfill(4) + '.' + infile.split('.')[-1]
+    file_name = os.path.basename(infile)
+    run_file  = os.path.join(outpath, file_name + suffix)
+    outfiles  = [run_file]
 
     # Actually split the file
     logme.log('Splitting file', 'debug')
     with open(infile) as fin:
         header = fin.readline() if keep_header else ''
-        split_file = open(run_file, 'w')
-        split_file.write(header)
+        sfile = open(run_file, 'w')
+        sfile.write(header)
         for line in fin:
             cnt += 1
             if cnt < num_lines:
-                split_file.write(line)
+                sfile.write(line)
             elif cnt == num_lines:
-                split_file.write(line)
-                split_file.close()
+                sfile.write(line)
+                sfile.close()
                 currjob += 1
                 suffix = '.split_' + str(currjob).zfill(4) + '.' + \
                     infile.split('.')[-1]
                 run_file = os.path.join(outpath, file_name + suffix)
-                split_file = open(run_file, 'w')
+                sfile = open(run_file, 'w')
                 outfiles.append(run_file)
-                split_file.write(header)
+                sfile.write(header)
                 cnt = 0
-        split_file.close()
+        sfile.close()
     return tuple(outfiles)
-
