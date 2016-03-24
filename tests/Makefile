@@ -24,8 +24,6 @@ testdir/pass_getgenease: testdir/pass_countsnpase testdir/ref.gtf testdir/varian
 		--writephasedsnps
 	diff -q testdir/gene_ase.tsv testdir/reference_gene_ase.tsv
 	touch $@
-	
-
 
 testdir/ref.gtf : | testdir
 	wget -O $@ http://web.stanford.edu/~pcombs/asetest/ref.gtf

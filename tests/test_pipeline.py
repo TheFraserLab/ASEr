@@ -9,7 +9,7 @@ Test the ASEr pipeline for sanity.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-48-24 10:03
- Last modified: 2016-03-24 12:41
+ Last modified: 2016-03-24 12:58
 
    DESCRIPTION: The logic of this is:
                     - Download known reference samples
@@ -63,9 +63,13 @@ FILES    = {'ase.bam':        {'url': ROOT_URL + 'ase.bam',
 ROOT_DIR = '.'
 TEST_DIR = 'testdir'
 
-#######################
-#  General Functions  #
-#######################
+###############################################################################
+#                              General Functions                              #
+###############################################################################
+
+#############
+#  Hashing  #
+#############
 
 
 def hash_file(infile):
@@ -84,18 +88,22 @@ def quick_hash(infile):
     return str(hasher.hexdigest())
 
 
+#################################
+#  File and Directory Handling  #
+#################################
+
+
 def get_test_dir():
     """Try to control for run location."""
     global ROOT_DIR
     global TEST_DIR
-    if os.path.isdir('bin') and os.path.isdir('ASEr'):
+    if os.path.isfile('LICENSE') and os.path.isdir('ASEr'):
         ROOT_DIR = os.path.abspath('.')
-        TEST_DIR = os.path.abspath('testdir')
-    elif os.path.isdir('../bin') and os.path.isdir('../ASEr'):
+    elif os.path.isfile('../LICENSE') and os.path.isdir('../ASEr'):
         ROOT_DIR = os.path.abspath('..')
-        TEST_DIR = os.path.abspath('../testdir')
     else:
         raise Exception('Run from project root')
+    TEST_DIR = os.path.join(ROOT_DIR, 'tests', 'testdir')
     if not os.path.isdir(TEST_DIR):
         os.makedirs(TEST_DIR)
 
@@ -120,9 +128,14 @@ def download_file(infile):
     return path
 
 
-####################
-#  Test Functions  #
-####################
+###############################################################################
+#                               Test Functions                                #
+###############################################################################
+
+
+###################
+#  Core Pipeline  #
+###################
 
 
 def test_countsnpase():
