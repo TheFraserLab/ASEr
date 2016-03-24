@@ -209,3 +209,8 @@ def test_getgenease():
     # Check hash of the resulting file
     snp_hash = hash_file(outfile)
     assert snp_hash == FILES['gene_ase.tsv']['hash']
+
+if __name__ == "__main__":
+    test_countsnpase()
+    test_getgenease()
+    print("All tests successful!")

@@ -103,7 +103,7 @@ def cmd(cmd, args=None, stdout=None, stderr=None):
     if stderr:
         with open_zipped(stderr, 'w') as fout:
             fout.write(err)
-    return code, outrstrip(), err.rstrip()
+    return code, out.rstrip(), err.rstrip()
 
 
 def is_exe(fpath):
