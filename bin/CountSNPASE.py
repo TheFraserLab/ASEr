@@ -10,7 +10,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2015-03-16
- Last modified: 2016-03-23 15:16
+ Last modified: 2016-03-24 14:45
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -255,6 +255,8 @@ def main(argv=None):
                      help='Mapped read file type is bam (auto-detected if *.bam)')
     uni.add_argument('-n', '--noclean', action='store_true',
                      help='Do not delete intermediate files (for debuging)')
+    uni.add_argument('-R', '--random-seed', default=None, type=int,
+                     help='Set the state of the randomizer (for testing)')
     uni.add_argument('-h', '--help', action='help',
                      help='show this help message and exit')
 
@@ -291,6 +293,9 @@ def main(argv=None):
                          'STDERR')
 
     args = parser.parse_args()
+    if args.random_seed is not None:
+        random.seed(args.random_seed)
+        print("Seed: ", args.random_seed, random.getstate()[1][:10])
 
     ###########################################################################
     #                            File Preparations                            #
@@ -599,7 +604,10 @@ def main(argv=None):
 
         # Go through the potential SNP dictionary and choose one SNP at random
         # for those overlapping multiple SNPs
-        keys = list(potsnp_dict.keys())
+        if args.random_seed is not None:  # Dictionaries are unordered, so must sort for consistent random seed output.
+            keys = sorted(list(potsnp_dict.keys()))
+        else:  # Because sorting is slow, only do it if random seed is set, slowdown is about 0.1s per 1 million reads..
+            keys = list(potsnp_dict.keys())
         for key in keys:
             snp = random.choice(potsnp_dict[key]).split('\t')
 
