@@ -22,6 +22,7 @@ Calculate gene/transcript-level counts from SNP counts.
 ###########
 import sys              # Access to simple command-line arguments
 import argparse         # Access to long command-line parsing
+import pandas as pd
 
 # Us
 from ASEr import run    # File handling utilities
@@ -468,42 +469,31 @@ def main(argv=None):
     keys = sorted(list(features.keys()))
 
     with open(args.outfile, 'w') as outfile:
-        # Header
-        outfile.write('FEATURE\tCHROMOSOME\tORIENTATION\tSTART-STOP\t' +
-                      'REFERENCE_COUNTS\tALT_COUNTS\tTOTAL_SNPS\tREF_BIASED\t' +
-                      'ALT_BIASED\tREF-ALT_RATIO\tSNPS\n')
+        posits = {key:'{}-{}'.format(min(position[key]), max(position[key])) for key in keys}
+        snp_arrays = {key: ';'.join(snp_array[key]) for key in total_ref}
+        out = pd.DataFrame({
+            'CHROMOSOME': chromosome,
+            'ORIENTATION': ori,
+            'START-STOP': posits,
+            'REFERENCE_COUNTS': total_ref,
+            'ALT_COUNTS' : total_alt,
+            'TOTAL_SNPS': total_snps,
+            'REF_BIASED' : ref_biased,
+            'ALT_BIASED' : alt_biased,
+            'REF-ALT_RATIO': pd.np.nan,
+            'SNPS' : snp_arrays},
+            index=keys,
+            columns=['CHROMOSOME', 'ORIENTATION', 'START-STOP',
+                'REFERENCE_COUNTS', 'ALT_COUNTS', 'TOTAL_SNPS', 'REF_BIASED',
+                'ALT_BIASED', 'REF-ALT_RATIO', 'SNPS'])
+        out.index.name = 'FEATURE'
+        out['REF-ALT_RATIO'] = (out.ix[:, ['REF_BIASED', 'ALT_BIASED']].max(axis=1)
+                / out.ix[:, ['REF_BIASED', 'ALT_BIASED']].sum(axis=1))
+        out.ix[(out.REF_BIASED == 0) & (out.ALT_BIASED == 0), 'REF-ALT_RATIO'] = 1
+        out.to_csv(outfile, sep='\t', na_rep='NA', float_format='%.16g')
 
-        for key in keys:
-            # Get the ultimate 5'-3' positions
-            position[key].sort(key=int)
-            posit = str(position[key][0]) + '-' + str(position[key][-1])
 
-            if key in total_ref:
-                pos = key.split('|')
-                if ref_biased[key] >= alt_biased[key]:
-                    if alt_biased[key] == 0:
-                        rat = 1
-                    else:
-                        rat = ref_biased[key]/float(alt_biased[key]+ref_biased[key])
-                else:
-                    if ref_biased[key] == 0:
-                        rat = 1
-                    else:
-                        rat = alt_biased[key]/float(ref_biased[key]+alt_biased[key])
 
-                snp_array_out = ';'.join(snp_array[key])
-
-                outfile.write('\t'.join(
-                    [str(i) for i in [key, chromosome[key], ori[key], posit,
-                                      total_ref[key], total_alt[key],
-                                      total_snps[key], ref_biased[key],
-                                      alt_biased[key], rat, snp_array_out]]) +
-                              '\n')
-            # No counts for this feature
-            else:
-                outfile.write('\t'.join(
-                    [str(i) for i in [key, chromosome[key], ori[key], posit,
-                                      'NA\tNA\tNA\tNA\tNA\tNA\tNA\n']]))
 
     if args.write is True:
         with open(args.outfile + '.snps.txt', 'w') as outfile:
