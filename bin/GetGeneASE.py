@@ -22,6 +22,8 @@ Calculate gene/transcript-level counts from SNP counts.
 ###########
 import sys              # Access to simple command-line arguments
 import argparse         # Access to long command-line parsing
+from collections import defaultdict
+from bisect import bisect
 import pandas as pd
 
 # Us
@@ -147,16 +149,20 @@ def read_snp_phasing_file(snp_file):
     :snp_file: A bed format file with phased SNPs, can be produces with the
                create_phased_bed script.
     :returns:  A dictionary of::
-                    position => REF|ALT
+                    chromosome => [(pos, REF|ALT), ...]
     """
-    snp_phase_dict = {}
+    snp_phase_dict = defaultdict(list)
     with run.open_zipped(snp_file) as snp_file:
         for line in snp_file:
             line   = line.rstrip('\n')
             line_t = line.split('\t')
 
-            pos = str(line_t[0]) + '|' + str(line_t[2])
-            snp_phase_dict[pos] = line_t[3]
+            chrom = line_t[0]
+            pos = int(line_t[2])
+            if len(snp_phase_dict[chrom]) and pos < snp_phase_dict[chrom][-1][0]:
+                raise ValueError("SNP file {} should be sorted by chromosome position"
+                        .format(snp_file.name))
+            snp_phase_dict[chrom].append((pos, line_t[3]))
     return snp_phase_dict
 
 
@@ -262,7 +268,8 @@ def main(argv=None):
                 sys.exit(1)
 
             features[name] = 1
-            chromosome[name] = line_t[0]
+            chrom = line_t[0]
+            chromosome[name] = chrom
 
             ori[name] = line_t[6]
             orientation = line_t[6]
@@ -276,10 +283,14 @@ def main(argv=None):
                 position[name].append(int(line_t[4]))
 
             # Now go through the positions overlapped by the annotation and add in SNPs if appropriate
-            for i in range(int(line_t[3]), int(line_t[4])+1):
-                pos = line_t[0] + '|' + str(i)
+            if chrom not in snp_phase_dict:
+                continue
+            lower = bisect(snp_phase_dict[chrom], (int(line_t[3]), ))
+            upper = bisect(snp_phase_dict[chrom], (int(line_t[4])+1, ))
+            for i, snp in snp_phase_dict[chrom][lower:upper]:
+                pos = chrom + '|' + str(i)
 
-                if pos in snp_counts_dict and pos in snp_phase_dict:
+                if pos in snp_counts_dict:
 
                     # Count SNPs
                     if name in total_snps:
@@ -290,7 +301,7 @@ def main(argv=None):
 
                     # Get REF|ALT counts
                     # Parse the REF|ALT dict
-                    refalt = snp_phase_dict[pos].split('|')
+                    refalt = snp.split('|')
 
                     # Get pos/neg counts
                     ref_pos_counts = snp_counts_dict[pos][0][refalt[0]]
@@ -329,7 +340,7 @@ def main(argv=None):
                             # Add it to the total SNP arrays
                             if name in snp_array:
                                 snp_array[name].append(
-                                    str(i) + ',' + str(snp_phase_dict[pos]) +
+                                    str(i) + ',' + str(snp) +
                                     ',' + str(ref_pos_counts) + '|' +
                                     str(alt_pos_counts))
                                 phased_snp_array.append(
@@ -341,7 +352,7 @@ def main(argv=None):
                             else:
                                 snp_array[name] = []
                                 snp_array[name].append(
-                                    str(i) + ',' + str(snp_phase_dict[pos]) +
+                                    str(i) + ',' + str(snp) +
                                     ',' + str(ref_pos_counts) + '|' +
                                     str(alt_pos_counts))
                                 phased_snp_array.append(
@@ -380,7 +391,7 @@ def main(argv=None):
                             # Add it to the total SNP array
                             if name in snp_array:
                                 snp_array[name].append(
-                                    str(i) + ',' + str(snp_phase_dict[pos]) +
+                                    str(i) + ',' + str(snp) +
                                     ',' + str(ref_neg_counts) + '|' +
                                     str(alt_neg_counts))
                                 phased_snp_array.append(
@@ -392,7 +403,7 @@ def main(argv=None):
                             else:
                                 snp_array[name] = []
                                 snp_array[name].append(
-                                    str(i) + ',' + str(snp_phase_dict[pos]) +
+                                    str(i) + ',' + str(snp) +
                                     ',' + str(ref_neg_counts) + '|' +
                                     str(alt_neg_counts))
                                 phased_snp_array.append(
@@ -456,13 +467,13 @@ def main(argv=None):
                         # Add it to the total SNP array
                         if name in snp_array:
                             snp_array[name].append(
-                                str(i) + ',' + str(snp_phase_dict[pos]) +
+                                str(i) + ',' + str(snp) +
                                 ',' + str(int(tot_ref)) + '|' +
                                 str(int(tot_alt)))
                         else:
                             snp_array[name] = []
                             snp_array[name].append(
-                                str(i) + ',' + str(snp_phase_dict[pos]) + ',' +
+                                str(i) + ',' + str(snp) + ',' +
                                 str(int(tot_ref)) + '|' + str(int(tot_alt)))
 
     # Print the output
