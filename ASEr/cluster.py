@@ -7,7 +7,7 @@ Submit jobs to slurm or torque, or with multiprocessing.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-44-20 23:03
- Last modified: 2016-03-23 01:25
+ Last modified: 2016-03-26 00:11
 
    DESCRIPTION: Allows simple job submission with either torque, slurm, or
                 with the multiprocessing module.
@@ -72,6 +72,11 @@ ALLOWED_QUEUES = ['torque', 'slurm', 'normal']
 #########################################################
 
 POOL = None
+
+# Reset broken multithreading
+# Some of the numpy C libraries can break multithreading, this command
+# fixes the issue.
+os.system("taskset -p 0xff %d 2>/dev/null" % os.getpid())
 
 
 def get_cluster_environment():
@@ -153,10 +158,10 @@ def wait(jobs):
                 if i[9] == 'C':
                     complete.append(i[0].split('.')[0])
             # Build a list of all jobs
-            all  = [s.split(i)[0].split('.')[0] for i in q[5:]]
+            all  = [s.split(j)[0].split('.')[0] for j in q[5:]]
             # Trim down job list
-            jobs = [i for i in jobs if i in all]
-            jobs = [i for i in jobs if i not in complete]
+            jobs = [j for j in jobs if j in all]
+            jobs = [j for j in jobs if j not in complete]
             if len(jobs) == 0:
                 return
             sleep(2)
