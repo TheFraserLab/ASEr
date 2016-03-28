@@ -81,6 +81,24 @@ SUM_READS\tSum of all reads assigned to the SNP
 ###############################################################################
 
 
+###
+#CARLO'S COMMENTS
+#
+#I can't remember when/if this function gets used, but I've since learned of a MUCH faster way
+#to access a FASTA sequence without storing the whole stupid thing in memory, which will kill
+#most applications on the human genome.
+#
+#First, the FASTA must be indexed with samtools:
+#
+# samtools faidx ref.fasta
+#
+#Then we can use pysam to return any 0-based sequence as follows:
+#
+# with pysam.FastaFile(ref.fasta, 'r') as in_fasta:
+#     seq = in_fasta.fetch(reference=CHROM, start=START, end=END)
+#
+#Because it's indexed and uses a C-API, it's very fast, and low mem.
+
 def fasta_to_dict(file):
     """Convert a FASTA file to a dictionary.
 
@@ -483,6 +501,30 @@ def main(argv=None):
                 pos = chrom_to_num(line_t[0]) + '|' + str(line_t[2])
                 snps[pos] = line_t[3]
 
+        ###
+        #CARLO'S COMMENTS
+        #
+        #Reading in BED/GTF/VCF files is a situation where pandas can make code easier to 
+        #maintain/understand. It's not necessarily fewer lines, but it's easier to see what's
+        #going on. Also, when I wrote this script, I didn't realize that tuples can act as 
+        #dictionary indices, which is MUCH better than the CHROM + '|' + POS construction.
+        #
+        #From working with computer programmers, I've learned that, as a general rule, it's bad
+        #form to use elements from split strings without first assigning them to variables. 
+        #This is because it requires everyone to know the exact formating that args.snps will 
+        #have. If they're first assigned to variables, or have columns indicated with pandas,
+        #as below, it's much clearer to everyone what's happening.
+        #
+        #(assuming import pandas as pd) 
+        #
+        # snps = {}
+        # snp_file = pd.read_table(args.bed)
+        # snp_file.columns = (["CHROM","START","END","SNP"])
+        # for idx,row in snp_file.itterows():
+        #     snps[(chrom_to_num(row["CHROM"]),int(row["END"]))] = row["SNP"] 
+        #
+        ###
+
         # This is the dictionary of potential SNPs for each read.
         potsnp_dict = {}
 
@@ -497,7 +539,15 @@ def main(argv=None):
         snp_count  = 0
         ryo_filter = 0
 
-        for line in in_sam:
+        ###
+        #CARLO'S COMMENTS
+        #
+        #This could be:
+        #
+        # with pysam.Samfile(args.reads,mode) as in_sam:
+        #     for line in in_sam.fetch(until_eof=True): 
+
+        for line in in_sam: 
             count += 1
 
             # Skip lines that overlap indels OR don't match Ns
@@ -506,6 +556,24 @@ def main(argv=None):
             if 'D' in cigarstring or 'I' in cigarstring:
                 indel_skip += 1
                 continue
+
+            ###
+            #CARLO'S COMMENTS
+            #
+            #The newer version of pysam allows you to get variants from reads without having
+            #to manually parse tags and would replace a large amount of the code below
+            #
+            # for (read_pos,genome_pos,genome_seq) in read.get_aligned_pairs(with_seq=True):
+            #     if genome_pos: #Is this base mapped?
+            #         if ((line.reference_name,genome_pos)) in snps: #Assuming we've converted to tuples
+            #
+            #             #This would be a good point to include a minimum quality score filter.
+            #             if line.query_quality[read_pos] >= MIN_QUALITY:
+            #
+            #                 #The read sequence of the SNP will be:
+            #                 line.query_sequence[read_pos]
+            #                 #and can be added to the appropriate counter.
+            ###
 
             # Split the tags to find the MD tag:
             tags = line.tags
