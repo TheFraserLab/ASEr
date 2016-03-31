@@ -28,6 +28,7 @@ from time import sleep     # Allow system pausing
 from multiprocessing import cpu_count
 from pysam import Samfile  # Read sam and bamfiles
 from collections import defaultdict
+from progressbar import ProgressBar
 
 # Us
 from ASEr import logme     # Logging functions
@@ -94,6 +95,42 @@ cigar_lookup = {
         }
 digits = re.compile('\d+|\D+')
 init_carat = re.compile('\^')
+
+def Get_Potential_SNPS_indexed(in_sam, snps):
+    potsnp_dict = defaultdict(list)
+
+    # Trackers to count how many reads are lost at each step
+    indel_skip = 0
+    nosnp_skip = 0
+    count      = 0
+    snp_count  = 0
+    ryo_filter = 0
+
+    for snp in ProgressBar()(snps):
+        chrom, pos = snp.split('|')
+        pos = int(pos)
+        for read in in_sam.fetch(chrom, pos, pos+1):
+            orientation = '+-'[read.is_reverse]
+            for cig_type, cig_val in read.cigartuples:
+                if cig_type == 1 or cig_type==2: #INDELs
+                    indel_skip += 1
+                    continue
+
+
+                for i, nuc in zip(read.get_reference_positions(), read.query_alignment_sequence):
+                    if i == pos:
+                        break
+                snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(
+                        chr=chrom, i=pos, snp_pos=nuc,
+                        orientation=orientation)
+                if snp in potsnp_dict[read.qname]:
+                    ryo_filter += 1
+                else:
+                    potsnp_dict[read.qname].append(snp)
+    return potsnp_dict, indel_skip, nosnp_skip, count, snp_count, ryo_filter
+
+
+    
 
 def Get_Potential_SNPS(in_sam, snps):
     references = in_sam.references  # Faster to make a copy of references.
@@ -605,6 +642,11 @@ def main(argv=None):
         # Now parse the SAM file to extract only reads overlapping SNPs.
         in_sam     = Samfile(args.reads, mode)
 
+        if not in_sam.has_index() and os.path.exists(args.reads.replace('.bam', '_sorted.bam')):
+            in_sam = Samfile(args.reads.replace('.bam', '_sorted.bam'), mode)
+            logme.log('Using indexed file {}'.format(in_sam.filename), level='info')
+
+
         # Trackers to count how many reads are lost at each step
         indel_skip = 0
         nosnp_skip = 0
@@ -613,8 +655,7 @@ def main(argv=None):
         ryo_filter = 0
 
         if in_sam.has_index():
-            print("Not implemented!")
-            pass
+            (potsnp_dict, indel_skip, nosnp_skip, count, snp_count, ryo_filter) = Get_Potential_SNPS_indexed(in_sam, snps)
         else:
             (potsnp_dict, indel_skip, nosnp_skip, count, snp_count, ryo_filter) = Get_Potential_SNPS(in_sam, snps)
         in_sam.close()
