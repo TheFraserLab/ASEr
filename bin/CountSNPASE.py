@@ -552,9 +552,7 @@ def main(argv=None):
 
                     # Get the genomic positions corresponding to each base-pair
                     # of the read
-                    read_genomic_positions = [i+1 for i in line.get_reference_positions()]
-                    #CIGAR_to_Genomic_Positions(
-                    #cigar_types, cigar_vals, line.pos+1)
+                    read_genomic_positions = line.get_reference_positions()
 
                     # Get the tag data
                     MD_split = digits.findall(tagval)
@@ -569,7 +567,7 @@ def main(argv=None):
                             pass
                         elif i.isalpha():
                             if i == 'N':
-                                snp_pos[read_genomic_positions[genome_start]] = read[MD_start]
+                                snp_pos[read_genomic_positions[genome_start]+1] = read[MD_start]
                                 MD_start += 1
                                 genome_start += 1
                             else:
@@ -583,7 +581,7 @@ def main(argv=None):
                         snp_count += 1
 
                         # RYO: START EDIT - Implemented Filter
-                        posVal = line.reference_name + '|' + str(i)
+                        posVal = references[line.reference_id] + '|' + str(i)
                         if posVal not in snps:
                             nosnp_skip += 1
                             continue
