@@ -80,6 +80,19 @@ SUM_READS\tSum of all reads assigned to the SNP
 #                                  Functions                                  #
 ###############################################################################
 
+cigar_lookup = {
+        0:"M", #   BAM_CMATCH  0
+        1:"I", #   BAM_CINS    1
+        2:"D", #   BAM_CDEL    2
+        3:"N", #   BAM_CREF_SKIP   3
+        4:"S", #   BAM_CSOFT_CLIP  4
+        5:"H", #   BAM_CHARD_CLIP  5
+        6:"P", #   BAM_CPAD    6
+        7:"=", #   BAM_CEQUAL  7
+        8:"X", #   BAM_CDIFF   8
+        }
+digits = re.compile('\d+|\D+')
+init_carat = re.compile('\^')
 
 def fasta_to_dict(file):
     """Convert a FASTA file to a dictionary.
@@ -530,20 +543,21 @@ def main(argv=None):
                         orientation = '+'
 
                     # Parse the CIGAR string
-                    cigar_types, cigar_vals = split_CIGAR(cigarstring)
+                    cigar_types, cigar_vals = zip(*line.cigartuples)
 
-                    if cigar_types[0] == 'S':
-                        MD_start = int(cigar_vals[0])
+                    if cigar_lookup[cigar_types[0]] == 'S':
+                        MD_start = cigar_vals[0]
                     else:
                         MD_start = 0
 
                     # Get the genomic positions corresponding to each base-pair
                     # of the read
-                    read_genomic_positions = CIGAR_to_Genomic_Positions(
-                        cigar_types, cigar_vals, line.pos+1)
+                    read_genomic_positions = [i+1 for i in line.get_reference_positions()]
+                    #CIGAR_to_Genomic_Positions(
+                    #cigar_types, cigar_vals, line.pos+1)
 
                     # Get the tag data
-                    MD_split = re.findall('\d+|\D+', tagval)
+                    MD_split = digits.findall(tagval)
 
                     genome_start = 0
 
@@ -551,7 +565,7 @@ def main(argv=None):
                     # => allele
                     snp_pos = {}
                     for i in MD_split:
-                        if re.match('\^', i):
+                        if init_carat.match(i):
                             pass
                         elif i.isalpha():
                             if i == 'N':
