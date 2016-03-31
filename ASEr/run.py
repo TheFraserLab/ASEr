@@ -7,7 +7,7 @@ File management and execution functions.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2016-02-11 16:03
- Last modified: 2016-03-24 13:50
+ Last modified: 2016-03-30 21:30
 
 ============================================================================
 """
@@ -115,7 +115,7 @@ def which(program):
     :program: Name of executable to test.
     :returns: Path to the program or None on failure.
     """
-    fpath = os.path.split(program)
+    fpath, program = os.path.split(program)
     if fpath:
         if is_exe(program):
             return os.path.abspath(program)

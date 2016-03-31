@@ -10,7 +10,7 @@ Count number of reads overlapping each SNP in a sam/bam file.
   ORGANIZATION: Stanford University
        LICENSE: MIT License, property of Stanford, use as you wish
        CREATED: 2015-03-16
- Last modified: 2016-03-24 14:45
+ Last modified: 2016-03-30 21:26
 
    DESCRIPTION: This script will take a BAM file mapped to a SNP-masked
                 genome and count the number of reads overlapping each SNP.
@@ -263,6 +263,7 @@ def main(argv=None):
     mult = parser.add_argument_group('Multi(plex) mode arguments')
     mult.add_argument('-j', '--jobs', type=int,
                       help='Divide into # of jobs', default=100, metavar='')
+    print(cluster_type)
     if cluster_type == 'slurm' or cluster_type == 'torque':
         mult.add_argument('-w', '--walltime',
                           help='Walltime for each job', default='3:00:00',
@@ -317,7 +318,8 @@ def main(argv=None):
         program_name = run.which(parser.prog)
 
     # Set the cluster type if we are in multi mode
-    if args.mode == 'multi':
+    if args.mode == 'multi' and (cluster_type == 'slurm'
+                                 or cluster_type == 'torque'):
         cluster.QUEUE = args.cluster
 
     # Check if the read file is sam or bam
