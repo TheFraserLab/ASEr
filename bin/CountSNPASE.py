@@ -27,6 +27,7 @@ import random              # Access to random number generation
 from time import sleep     # Allow system pausing
 from multiprocessing import cpu_count
 from pysam import Samfile  # Read sam and bamfiles
+from collections import defaultdict
 
 # Us
 from ASEr import logme     # Logging functions
@@ -93,6 +94,107 @@ cigar_lookup = {
         }
 digits = re.compile('\d+|\D+')
 init_carat = re.compile('\^')
+
+def Get_Potential_SNPS(in_sam, snps):
+    references = in_sam.references  # Faster to make a copy of references.
+    potsnp_dict = defaultdict(list)
+
+    # Trackers to count how many reads are lost at each step
+    indel_skip = 0
+    nosnp_skip = 0
+    count      = 0
+    snp_count  = 0
+    ryo_filter = 0
+
+    for line in in_sam:
+        count += 1
+
+        # Skip lines that overlap indels OR don't match Ns
+        cigarstring = line.cigarstring
+
+        if 'D' in cigarstring or 'I' in cigarstring:
+            indel_skip += 1
+            continue
+
+        # Split the tags to find the MD tag:
+        tags = line.tags
+        for tagname, tagval in tags:
+            if tagname == 'MD' and 'N' in tagval:
+                # Remember that, for now, we're not allowing reads that
+                # overlap insertions/deletions.
+
+                chrom = references[line.rname]
+                pos   = line.pos
+                read  = line.seq
+
+                # We're assuming
+                # correct mapping such that FIRST MATES on the NEGATIVE
+                # STRAND are NEGATIVE, while SECOND MATES on the NEGATIVE
+                # STRAND are POSITIVE.
+
+                if line.is_reverse:
+                    orientation = '-'
+                else:
+                    orientation = '+'
+
+                # Parse the CIGAR string
+                cigar_types, cigar_vals = zip(*line.cigartuples)
+
+                if cigar_lookup[cigar_types[0]] == 'S':
+                    MD_start = cigar_vals[0]
+                else:
+                    MD_start = 0
+
+                # Get the genomic positions corresponding to each base-pair
+                # of the read
+                read_genomic_positions = line.get_reference_positions()
+
+                # Get the tag data
+                MD_split = digits.findall(tagval)
+
+                genome_start = 0
+
+                # The snp_pos dictionary will store the 1-base position
+                # => allele
+                snp_pos = {}
+                for i in MD_split:
+                    if init_carat.match(i):
+                        pass
+                    elif i.isalpha():
+                        if i == 'N':
+                            snp_pos[read_genomic_positions[genome_start]+1] = read[MD_start]
+                            MD_start += 1
+                            genome_start += 1
+                        else:
+                            MD_start += 1
+                            genome_start += 1
+                    else:
+                        MD_start += int(i)
+                        genome_start += int(i)
+
+                for i in snp_pos:
+                    snp_count += 1
+
+                    # RYO: START EDIT - Implemented Filter
+                    posVal = chrom + '|' + str(i)
+                    if posVal not in snps:
+                        nosnp_skip += 1
+                        continue
+                    # RYO: END EDIT - Implmented Filter
+
+                    snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(
+                            chr=chrom, i=i, snp_pos=snp_pos[i],
+                            orientation=orientation)
+                    if snp in potsnp_dict[line.qname]:
+                        # RYO EDIT HERE - added conditional so that
+                        # pairs of reads are not considered twice if
+                        # they both overlap the same snp.
+                        ryo_filter += 1
+                    else:
+                        potsnp_dict[line.qname].append(snp)
+
+    return potsnp_dict, indel_skip, nosnp_skip, count, snp_count, ryo_filter
+
 
 def fasta_to_dict(file):
     """Convert a FASTA file to a dictionary.
@@ -502,7 +604,6 @@ def main(argv=None):
 
         # Now parse the SAM file to extract only reads overlapping SNPs.
         in_sam     = Samfile(args.reads, mode)
-        references = in_sam.references  # Faster to make a copy of references.
 
         # Trackers to count how many reads are lost at each step
         indel_skip = 0
@@ -511,97 +612,11 @@ def main(argv=None):
         snp_count  = 0
         ryo_filter = 0
 
-        for line in in_sam:
-            count += 1
-
-            # Skip lines that overlap indels OR don't match Ns
-            cigarstring = line.cigarstring
-
-            if 'D' in cigarstring or 'I' in cigarstring:
-                indel_skip += 1
-                continue
-
-            # Split the tags to find the MD tag:
-            tags = line.tags
-            for tagname, tagval in tags:
-                if tagname == 'MD' and 'N' in tagval:
-                    # Remember that, for now, we're not allowing reads that
-                    # overlap insertions/deletions.
-
-                    chrom = references[line.rname]
-                    pos   = line.pos
-                    read  = line.seq
-
-                    # We're assuming
-                    # correct mapping such that FIRST MATES on the NEGATIVE
-                    # STRAND are NEGATIVE, while SECOND MATES on the NEGATIVE
-                    # STRAND are POSITIVE.
-
-                    if line.is_reverse:
-                        orientation = '-'
-                    else:
-                        orientation = '+'
-
-                    # Parse the CIGAR string
-                    cigar_types, cigar_vals = zip(*line.cigartuples)
-
-                    if cigar_lookup[cigar_types[0]] == 'S':
-                        MD_start = cigar_vals[0]
-                    else:
-                        MD_start = 0
-
-                    # Get the genomic positions corresponding to each base-pair
-                    # of the read
-                    read_genomic_positions = line.get_reference_positions()
-
-                    # Get the tag data
-                    MD_split = digits.findall(tagval)
-
-                    genome_start = 0
-
-                    # The snp_pos dictionary will store the 1-base position
-                    # => allele
-                    snp_pos = {}
-                    for i in MD_split:
-                        if init_carat.match(i):
-                            pass
-                        elif i.isalpha():
-                            if i == 'N':
-                                snp_pos[read_genomic_positions[genome_start]+1] = read[MD_start]
-                                MD_start += 1
-                                genome_start += 1
-                            else:
-                                MD_start += 1
-                                genome_start += 1
-                        else:
-                            MD_start += int(i)
-                            genome_start += int(i)
-
-                    for i in snp_pos:
-                        snp_count += 1
-
-                        # RYO: START EDIT - Implemented Filter
-                        posVal = references[line.reference_id] + '|' + str(i)
-                        if posVal not in snps:
-                            nosnp_skip += 1
-                            continue
-                        # RYO: END EDIT - Implmented Filter
-
-                        snp = '{chr}|{i}\t{snp_pos}\t{orientation}'.format(
-                            chr=chrom, i=i, snp_pos=snp_pos[i],
-                            orientation=orientation)
-                        if line.qname in potsnp_dict:
-                            if snp not in potsnp_dict[line.qname]:
-                                # RYO EDIT HERE - added conditional so that
-                                # pairs of reads are not considered twice if
-                                # they both overlap the same snp.
-                                potsnp_dict[line.qname].append(snp)
-                            else:
-                                ryo_filter += 1
-                        else:
-                            potsnp_dict[line.qname] = []
-                            potsnp_dict[line.qname].append(snp)
-
+        if in_sam.has_index():
+            print("Not implemented!")
+            pass
+        else:
+            (potsnp_dict, indel_skip, nosnp_skip, count, snp_count, ryo_filter) = Get_Potential_SNPS(in_sam, snps)
         in_sam.close()
 
         # Log all of the skipped reads
