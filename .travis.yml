@@ -12,3 +12,4 @@ python:
 install: "pip install --user -r requirements.txt"
 # command to run tests
 script: py.test
+cache: pip
