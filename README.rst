@@ -2,6 +2,8 @@
 ASEr
 ####
 
+.. image:: https://travis-ci.org/TheFraserLab/ASEr.svg?branch=master
+
 Get ASE counts from BAMs or raw fastq data -- repackage of pipeline by Carlo Artieri
 
 Scripts: MaskReferencefromBED.pl, create_individual_snp_files, CountSNPASE.py, create_phased_bed, GetGeneASE.py
