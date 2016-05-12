@@ -7,6 +7,7 @@ from sys import stdout
 from os import path
 import ASEr.logme as lm
 from math import log2
+import pickle
 
 try:
     from progressbar import ProgressBar as pbar
@@ -40,7 +41,7 @@ def get_snps(snpfile):
     if path.exists(path.join(path.dirname(snpfile), 'true_hets.tsv')):
         print("using true hets")
         true_hets = {tuple(line.strip().split()):True
-                     for line in open('true_hets.tsv')
+                     for line in open(path.join(path.dirname(snpfile), 'true_hets.tsv'))
                     }
     else:
         true_hets = defaultdict(lambda x: True)
@@ -53,6 +54,8 @@ def get_snps(snpfile):
     return snps
 
 def get_gene_coords(gff_file, id_name, feature_type='exon'):
+    if path.exists(gff_file + '.pkl'):
+        return pickle.load(open(gff_file + '.pkl', 'rb'))
     gene_coords = defaultdict(lambda : [None, set()])
     for line in open(gff_file):
         chrom, _, feature, left, right, _, _, _, annot = (
@@ -73,6 +76,7 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
             continue
         gene_coords[feature_id][0] = chrom
         gene_coords[feature_id][1].add((int(left), int(right)))
+    pickle.dump(gene_coords, open(gff_file + '.pkl', 'wb'))
     return gene_coords
         
 def get_ase_by_coords(chrom, coords, samfile, snp_dict):
@@ -128,6 +132,21 @@ def get_ase_by_coords(chrom, coords, samfile, snp_dict):
 
 
 
+def pref_index(ref, alt):
+    return (alt-ref)/(alt+ref)
+
+def log2ase(ref, alt):
+    return log2(alt/ref)
+
+def ratio(ref, alt):
+    return alt/ref
+
+ase_fcns = {
+        'pref_index': pref_index,
+        'log2': log2ase,
+        'ratio': ratio,
+        }
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('snp_file')
@@ -143,23 +162,11 @@ def parse_args():
     parser.add_argument('--ase-function', '-f', default='log2', type=str)
 
     args = parser.parse_args()
+    if args.ase_function not in ase_fcns:
+        print("Unrecognized function: {}".format(args.ase_fcn))
+        raise ValueError
     print(args)
     return args
-
-def pref_index(ref, alt):
-    return (alt-ref)/(alt+ref)
-
-def log2ase(ref, alt):
-    return log2(alt/ref)
-
-def ratio(ref, alt):
-    return alt/ref
-
-ase_fcns = {
-        'pref_index': pref_index,
-        'log2': log2ase,
-        'ratio': ratio,
-        }
 
 if __name__ == "__main__":
     args = parse_args()
