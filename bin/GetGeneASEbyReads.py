@@ -156,9 +156,10 @@ def parse_args():
             help=''
             )
     parser.add_argument('--id-name', '-n', default='gene_id', type=str)
-    parser.add_argument('--outfile', '-o', default=stdout, 
+    parser.add_argument('--outfile', '-o', default=stdout,
             type=FileType('w'),
             )
+    parser.add_argument('--min-reads-per-gene', '-m', default=20, type=int)
     parser.add_argument('--ase-function', '-f', default='log2', type=str)
 
     args = parser.parse_args()
@@ -203,18 +204,18 @@ if __name__ == "__main__":
         if 'finish' in dir(prog):
             prog.finish()
     print('gene', 'chrom', 'ref_counts', 'alt_counts', 'no_ase_counts',
-            'ambig_ase_counts', 'ase_value', 
+            'ambig_ase_counts', 'ase_value',
             file=args.outfile, sep='\t', end='\n'
             )
     for gene in sorted(ase_vals):
         avg = ase_vals[gene]
-        if avg[1] or avg[-1]:
+        if (avg[1] or avg[-1]) and (avg[1] + avg[-1] > args.min_reads_per_gene):
             ase_fcn = ase_fcns[args.ase_function]
             ase_val = ase_fcn(avg[-1], avg[1])
         else:
             ase_val = 'NA'
         print(
-                gene, gene_coords[gene][0], 
+                gene, gene_coords[gene][0],
                 ase_vals[gene][-1],
                 ase_vals[gene][1],
                 ase_vals[gene][None],
