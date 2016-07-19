@@ -6,7 +6,7 @@ from multiprocessing import Pool, cpu_count
 from sys import stdout
 from os import path
 import ASEr.logme as lm
-from math import log2
+from math import log2, sqrt
 import pickle
 
 try:
@@ -144,11 +144,44 @@ def log2ase(ref, alt):
 def ratio(ref, alt):
     return alt/ref
 
+def wilson95_pref(ref, alt):
+    """Lower bound of the 95% confidence interval
+
+    Calculate the 95% confidence interval of the p, assuming a Bernoulli trial
+    that gave the results REF and ALT.  Then, if that interval contains 50%,
+    just use that, otherwise take the bound closer to 50%.  Finally, convert to
+    a preference index [-1, 1], instead of a probability [0, 1] by multiplying
+    by 2, and subtracting 1.
+
+    See https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval.
+    """
+
+    z = 1.96
+    n = ref + alt
+    phat = alt/n
+
+    plusminus = z * sqrt(1/n * phat * (1-phat) + 1/(4 * n**2) * z**2)
+
+    p_plus = 1/(1+z**2/n) * (phat + z**2/(2*n) + plusminus)
+    p_minus = 1/(1+z**2/n) * (phat + z**2/(2*n) - plusminus)
+
+    if p_minus < 0.5 < p_plus:
+        p = 0.5
+    elif p_minus > 0.5:
+        p = p_minus
+    elif p_plus < 0.5:
+        p = p_plus
+    else:
+        raise ValueError("I think I really screwed the pooch on this one")
+
+    return 2 * p - 1
+
 ase_fcns = {
-        'pref_index': pref_index,
-        'log2': log2ase,
-        'ratio': ratio,
-        }
+    'wilson95': wilson95_pref,
+    'pref_index': pref_index,
+    'log2': log2ase,
+    'ratio': ratio,
+}
 
 def parse_args():
     parser = ArgumentParser()
