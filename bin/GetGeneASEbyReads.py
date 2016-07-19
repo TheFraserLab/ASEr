@@ -76,9 +76,12 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
             continue
         gene_coords[feature_id][0] = chrom
         gene_coords[feature_id][1].add((int(left), int(right)))
-    pickle.dump(gene_coords, open(gff_file + '.pkl', 'wb'))
+    gene_coords_out = {}
+    for entry in gene_coords:
+        gene_coords_out[entry] = gene_coords[entry]
+    pickle.dump(gene_coords_out, open(gff_file + '.pkl', 'wb'))
     return gene_coords
-        
+
 def get_ase_by_coords(chrom, coords, samfile, snp_dict):
     left_most = 1e99
     right_most = 0
