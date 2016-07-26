@@ -16,6 +16,15 @@ except ImportError:
     pbar = lambda: lambda x: iter(x)
 
 def get_phase(read, snps):
+    """ Returns the phase of the read, according to SNPs
+
+    None: No snps falling across the read
+    -1: All SNP(s) match Reference alleles
+    0: SNPs disagree about which allele this read matches, or read contains non
+        REF/ALT
+    1: All SNP(s) match Alternate allele
+    """
+
     phase = None
     for read_pos, ref_pos in read.get_aligned_pairs(matches_only=True):
         if ref_pos + 1 in snps:
@@ -117,11 +126,14 @@ def get_ase_by_coords(chrom, coords, samfile, snp_dict):
             continue
         phase = get_phase(read, snps_on_chrom)
         phases[read.qname].add(phase)
+        # Note that pairs of the same read should have the same qname.
 
     read_counts = Counter()
 
     for phase_set in phases.values():
         phase_set.discard(None)
+        # Removes None if any, so a paired end read with no information doesn't
+        # invalidate the end that does have a clear phase.
         if len(phase_set) == 1:
             # Unambiguously phased
             read_counts[phase_set.pop()] += 1
@@ -213,6 +225,9 @@ if __name__ == "__main__":
 
     ase_vals = {}
     if False and args.max_jobs != 1:
+        # Early experiments suggest this doesn't actually make things faster, so
+        # the if False automatically skips this branch.  But if someone later
+        # wants to put it back i, it should be easy...
         with Pool(args.max_jobs or cpu_count()) as pool:
             for gene in gene_coords:
                 ase_vals[gene] = pool.apply_async(
