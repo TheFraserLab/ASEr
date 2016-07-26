@@ -67,14 +67,24 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
         return pickle.load(open(gff_file + '.pkl', 'rb'))
     gene_coords = defaultdict(lambda : [None, set()])
     for line in open(gff_file):
+
+        if line.startswith("#"):
+            continue
+
         chrom, _, feature, left, right, _, _, _, annot = (
                 line.split('\t'))
         if feature != feature_type: continue
-        annot = annot.strip().strip(';').split('; ')
+        annot = annot.strip().split(';')
+        annot = (i.strip() for i in annot)
+
         feature_id = 'MISSING'
         for a in annot:
             if a.startswith(id_name):
-                feature_id = a.split()[1].strip('"').strip("'")
+                if gff_file.endswith(".gff"):
+                    sep = "="
+                else:
+                    sep = " "
+                feature_id = a.split(sep)[1].strip('"').strip("'")
                 break
         else:
             feature_id = 'MISSING'
