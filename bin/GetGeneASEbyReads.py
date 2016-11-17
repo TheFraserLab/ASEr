@@ -27,7 +27,7 @@ def get_phase(read, snps):
 
     phase = None
     for read_pos, ref_pos in read.get_aligned_pairs(matches_only=True):
-        if ref_pos + 1 in snps:
+        if ref_pos + 1 in snps and read.query_qualities[read_pos] >= 30:
             if phase == None:
                 try:
                     # 1 if alternate, -1 if reference
