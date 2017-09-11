@@ -63,8 +63,9 @@ def get_snps(snpfile):
     return snps
 
 def get_gene_coords(gff_file, id_name, feature_type='exon'):
-    if path.exists(gff_file + '.pkl'):
-        return pickle.load(open(gff_file + '.pkl', 'rb'))
+    pkl_file = "{}.{}.pkl".format(gff_file, id_name)
+    if path.exists(pkl_file):
+        return pickle.load(open(pkl_file, 'rb'))
     gene_coords = defaultdict(lambda : [None, set()])
     for line in open(gff_file):
 
@@ -98,7 +99,7 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
     gene_coords_out = {}
     for entry in gene_coords:
         gene_coords_out[entry] = gene_coords[entry]
-    pickle.dump(gene_coords_out, open(gff_file + '.pkl', 'wb'))
+    pickle.dump(gene_coords_out, open(pkl_file, 'wb'))
     return gene_coords
 
 def get_ase_by_coords(chrom, coords, samfile, snp_dict):
