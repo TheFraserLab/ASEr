@@ -199,11 +199,19 @@ def wilson95_pref(ref, alt):
 
     return 2 * p - 1
 
+def diff_expression_prod(ref, alt):
+    return (alt - ref) * (alt + ref)
+
+def pref_index_expression_normed(ref, alt):
+    return (alt - ref)/sqrt(alt + ref)
+
 ase_fcns = {
     'wilson95': wilson95_pref,
     'pref_index': pref_index,
     'log2': log2ase,
     'ratio': ratio,
+    'pref_expr': pref_index_expression_normed,
+    'diff_expr': diff_expression_prod,
 }
 
 def parse_args():
