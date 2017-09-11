@@ -229,6 +229,8 @@ def parse_args():
     parser.add_argument('--min-reads-per-gene', '-m', default=20, type=int)
     parser.add_argument('--ase-function', '-f', default='log2', type=str)
     parser.add_argument('--min-reads-per-allele', '-M', default=0, type=int)
+    parser.add_argument('--print-coords', '-C', default=False,
+                        action='store_true')
 
     args = parser.parse_args()
     if args.ase_function not in ase_fcns:
@@ -274,10 +276,14 @@ if __name__ == "__main__":
                     )
         if 'finish' in dir(prog):
             prog.finish()
-    print('gene', 'chrom', 'ref_counts', 'alt_counts', 'no_ase_counts',
-            'ambig_ase_counts', 'ase_value',
-            file=args.outfile, sep='\t', end='\n'
-            )
+    columns = ['gene', 'chrom', 'ref_counts', 'alt_counts', 'no_ase_counts',
+            'ambig_ase_counts', 'ase_value',]
+    if args.print_coords:
+        columns.insert(2, 'coords')
+    print(
+        *columns,
+        file=args.outfile, sep='\t', end='\n'
+    )
     for gene in sorted(ase_vals):
         avg = ase_vals[gene]
         # Not "average", "ase vals for gene"
@@ -286,13 +292,20 @@ if __name__ == "__main__":
             ase_val = ase_fcn(avg[-1], avg[1])
         else:
             ase_val = 'NA'
-        print(
+        out_data = [
                 gene, gene_coords[gene][0],
                 ase_vals[gene][-1],
                 ase_vals[gene][1],
                 ase_vals[gene][None],
                 ase_vals[gene][0],
-                ase_val,
-                file=args.outfile, sep='\t', end='\n'
-                )
+                ase_val,]
+        if args.print_coords:
+            out_data.insert(2, '{}-{}'.format(
+                min(i[0] for i in gene_coords[gene][1]),
+                max(i[1] for i in gene_coords[gene][1])
+            ))
+        print(
+            *out_data,
+            file=args.outfile, sep='\t', end='\n'
+        )
 
