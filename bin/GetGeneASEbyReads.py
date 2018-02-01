@@ -1,5 +1,5 @@
 from __future__ import print_function
-from pysam import Samfile
+from pysam import AlignmentFile
 from argparse import ArgumentParser, FileType
 from collections import defaultdict, Counter
 from multiprocessing import Pool, cpu_count
@@ -8,6 +8,8 @@ from os import path
 import ASEr.logme as lm
 from math import log2, sqrt
 import pickle
+import subprocess
+import re
 
 try:
     from progressbar import ProgressBar as pbar
@@ -27,7 +29,7 @@ def get_phase(read, snps):
 
     phase = None
     for read_pos, ref_pos in read.get_aligned_pairs(matches_only=True):
-        if ref_pos + 1 in snps:
+        if ref_pos + 1 in snps and read.query_qualities[read_pos] >= 30:
             if phase == None:
                 try:
                     # 1 if alternate, -1 if reference
@@ -214,11 +216,17 @@ ase_fcns = {
     'diff_expr': diff_expression_prod,
 }
 
+def get_lib_size(reads):
+    arg = "samtools idxstats " + reads + " | awk -F \'\t\' \'{s+=$3+$4}END{print s}\'"
+    libSize = str(subprocess.check_output(arg,shell=True))
+    libSize=re.sub(r'b\'([0-9]+)(\\.*)',r'\1',libSize)
+    return libSize
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('snp_file')
     parser.add_argument('gff_file')
-    parser.add_argument('reads', type=Samfile)
+    parser.add_argument('reads')
     parser.add_argument('--max-jobs', '-p', default=0, type=int,
             help=''
             )
@@ -236,14 +244,14 @@ def parse_args():
     if args.ase_function not in ase_fcns:
         print("Unrecognized function: {}".format(args.ase_fcn))
         raise ValueError
-    print(args)
     return args
 
 if __name__ == "__main__":
     args = parse_args()
+    reads = AlignmentFile(args.reads,'rb')
     snp_dict = get_snps(args.snp_file)
     gene_coords = get_gene_coords(args.gff_file, args.id_name)
-
+    lib_size = get_lib_size(args.reads)
     ase_vals = {}
     if False and args.max_jobs != 1:
         # Early experiments suggest this doesn't actually make things faster, so
@@ -256,7 +264,7 @@ if __name__ == "__main__":
                         (
                             gene_coords[gene][0],
                             gene_coords[gene][1],
-                            args.reads,
+                            reads,
                             snp_dict,
                             ))
 
@@ -271,11 +279,12 @@ if __name__ == "__main__":
             ase_vals[gene] = get_ase_by_coords(
                     gene_coords[gene][0],
                     gene_coords[gene][1],
-                    args.reads,
+                    reads,
                     snp_dict
                     )
         if 'finish' in dir(prog):
             prog.finish()
+    print("# Library size: " + str(lib_size), file=args.outfile, end='\n')
     columns = ['gene', 'chrom', 'ref_counts', 'alt_counts', 'no_ase_counts',
             'ambig_ase_counts', 'ase_value',]
     if args.print_coords:
