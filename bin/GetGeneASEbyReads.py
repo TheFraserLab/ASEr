@@ -296,7 +296,7 @@ if __name__ == "__main__":
     for gene in sorted(ase_vals):
         avg = ase_vals[gene]
         # Not "average", "ase vals for gene"
-        if (min(avg[1], avg[-1]) > args.min_reads_per_allele) and (avg[1] + avg[-1] > args.min_reads_per_gene):
+        if (min(avg[1], avg[-1]) >= args.min_reads_per_allele) and (avg[1] + avg[-1] >= args.min_reads_per_gene):
             ase_fcn = ase_fcns[args.ase_function]
             ase_val = ase_fcn(avg[-1], avg[1])
         else:
