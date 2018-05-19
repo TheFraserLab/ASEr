@@ -3,13 +3,18 @@ from pysam import AlignmentFile
 from argparse import ArgumentParser, FileType
 from collections import defaultdict, Counter
 from multiprocessing import Pool, cpu_count
+from scipy.stats import binom_test
+from scipy.special import gammaln
 from sys import stdout
 from os import path
+from itertools import chain
 import ASEr.logme as lm
-from math import log2, sqrt
+from math import log10, log2, sqrt
 import pickle
 import subprocess
 import re
+
+ASSIGNED_READS = {}
 
 try:
     from progressbar import ProgressBar as pbar
@@ -65,9 +70,8 @@ def get_snps(snpfile):
     return snps
 
 def get_gene_coords(gff_file, id_name, feature_type='exon'):
-    pkl_file = "{}.{}.pkl".format(gff_file, id_name)
-    if path.exists(pkl_file):
-        return pickle.load(open(pkl_file, 'rb'))
+    if False and path.exists(gff_file + '.pkl'):
+        return pickle.load(open(gff_file + '.pkl', 'rb'))
     gene_coords = defaultdict(lambda : [None, set()])
     for line in open(gff_file):
 
@@ -101,7 +105,7 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
     gene_coords_out = {}
     for entry in gene_coords:
         gene_coords_out[entry] = gene_coords[entry]
-    pickle.dump(gene_coords_out, open(pkl_file, 'wb'))
+    #pickle.dump(gene_coords, open(gff_file + '.pkl', 'wb'))
     return gene_coords
 
 def get_ase_by_coords(chrom, coords, samfile, snp_dict):
@@ -137,7 +141,7 @@ def get_ase_by_coords(chrom, coords, samfile, snp_dict):
             # UTR
             read_results['missed exon boundaries'] += 1
             continue
-        phase = get_phase(read, snps_on_chrom)
+        phase = ASSIGNED_READS.setdefault(read.qname, get_phase(read, snps_on_chrom) )
         phases[read.qname].add(phase)
         # Note that pairs of the same read should have the same qname.
 
@@ -165,6 +169,9 @@ def pref_index(ref, alt):
 
 def log2ase(ref, alt):
     return log2(alt/ref)
+
+def log2ase_offset(ref, alt):
+    return log2((alt + 5)/(ref+5))
 
 def ratio(ref, alt):
     return alt/ref
@@ -206,6 +213,27 @@ def diff_expression_prod(ref, alt):
 
 def pref_index_expression_normed(ref, alt):
     return (alt - ref)/sqrt(alt + ref)
+def binom_pval_polarized(ref, alt):
+    """A polarized version of the log10 pvalue
+
+    Will be negative if more reference than alternative, positive if more
+    alternative than reference"""
+
+    pval = binom_test([ref, alt], p=0.5)
+    if ref > alt:
+        return log10(pval) if pval>0 else -30
+    else:
+        return -log10(pval) if pval>0 else 30
+
+def beta_binom(ref, alt, all_ref, all_alt):
+    x = alt
+    n = ref + alt
+    a = all_ref
+    b = all_alt
+    lnanswer = gammaln(n+1) + gammaln(x+a) + gammaln(n-x+b) + gammaln(a+b) - \
+            (gammaln(x+1) + gammaln(n-x+1) + gammaln(a) + gammaln(b) + gammaln(n+a+b))
+    return lnanswer
+
 
 ase_fcns = {
     'wilson95': wilson95_pref,
@@ -214,6 +242,8 @@ ase_fcns = {
     'ratio': ratio,
     'pref_expr': pref_index_expression_normed,
     'diff_expr': diff_expression_prod,
+    'log10pval': binom_pval_polarized,
+    'log2offset': log2ase_offset,
 }
 
 def get_lib_size(reads):
@@ -227,6 +257,10 @@ def parse_args():
     parser.add_argument('snp_file')
     parser.add_argument('gff_file')
     parser.add_argument('reads')
+    parser.add_argument('--assign-all-reads', default=False,
+            action='store_true',
+            help='Get an overall accounting of which reads map to reference, '
+            'alternative, or other')
     parser.add_argument('--max-jobs', '-p', default=0, type=int,
             help=''
             )
@@ -274,6 +308,45 @@ if __name__ == "__main__":
             if 'finish' in dir(prog):
                 prog.finish()
     else:
+        if args.assign_all_reads:
+            phase_counters = Counter()
+            references = list(reads.references)
+            unpaired_reads = [{}, {}] #Unpaired Read 1s, Unpaired Read 2s
+            for read in pbar(max_value=reads.mapped)(reads):
+                qname = read.qname
+                phase = get_phase(
+                        read,
+                        snp_dict[references[read.reference_id]]
+                        )
+                if qname in unpaired_reads[read.is_read1]:
+                    other_phase = unpaired_reads[read.is_read1].pop(qname)
+                    phase_set = set([phase, other_phase])
+                    phase_set.discard(None)
+                    # Removes None if any, so a paired end read with no information doesn't
+                    # invalidate the end that does have a clear phase.
+                    if len(phase_set) == 1:
+                        # Unambiguously phased
+                        phase_counters[phase_set.pop()] += 1
+                    elif len(phase_set) == 0:
+                        phase_counters[None] += 1
+                    else:
+                        phase_counters[0] += 1
+                else:
+                    #unpaired_reads[True] = Read 2
+                    #unpaired_reads[False] = Read 1
+                    unpaired_reads[read.is_read2][qname] = phase
+
+
+            print(len(unpaired_reads[0]), " unpaired read 1s")
+            print(len(unpaired_reads[1]), " unpaired read 2s")
+
+            for phase in chain(unpaired_reads[0].values(),
+                    unpaired_reads[1].values()):
+                phase_counters[phase] += 1
+            print("# All read phases: ", phase_counters, file=args.outfile,
+                    end='\n')
+            args.outfile.flush()
+
         prog = pbar()
         for gene in prog(gene_coords):
             ase_vals[gene] = get_ase_by_coords(
