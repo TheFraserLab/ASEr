@@ -348,7 +348,15 @@ if __name__ == "__main__":
             args.outfile.flush()
 
         prog = pbar()
+        chroms = set(reads.references)
         for gene in prog(gene_coords):
+            if gene_coords[gene][0] not in chroms:
+                lm.log("Can't find {} in the SAM/BAM file".format(
+                    gene_coords[gene][0]
+                    ),
+                    level='warn',
+                )
+                continue
             ase_vals[gene] = get_ase_by_coords(
                     gene_coords[gene][0],
                     gene_coords[gene][1],
