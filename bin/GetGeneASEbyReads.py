@@ -141,7 +141,8 @@ def get_ase_by_coords(chrom, coords, samfile, snp_dict):
             # UTR
             read_results['missed exon boundaries'] += 1
             continue
-        phase = ASSIGNED_READS.setdefault(read.qname, get_phase(read, snps_on_chrom) )
+        phase = ASSIGNED_READS.setdefault(read.qname + chr(ord('1')+read.is_read2),
+                                          get_phase(read, snps_on_chrom) )
         phases[read.qname].add(phase)
         # Note that pairs of the same read should have the same qname.
 
