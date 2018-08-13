@@ -69,10 +69,14 @@ def get_snps(snpfile):
 
     return snps
 
-def get_gene_coords(gff_file, id_name, feature_type='exon'):
+def get_gene_coords(gff_file, id_name, feature_type='exon', extra_fields=[]):
     if False and path.exists(gff_file + '.pkl'):
         return pickle.load(open(gff_file + '.pkl', 'rb'))
-    gene_coords = defaultdict(lambda : [None, set()])
+    gene_coords = defaultdict(lambda : [
+        None,
+        set(),
+        {},
+    ])
     for line in open(gff_file):
 
         if line.startswith("#"):
@@ -81,20 +85,21 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
         chrom, _, feature, left, right, _, _, _, annot = (
                 line.split('\t'))
         if feature != feature_type: continue
-        annot = annot.strip().split(';')
-        annot = (i.strip() for i in annot)
 
-        feature_id = 'MISSING'
-        for a in annot:
-            if a.startswith(id_name):
-                if gff_file.endswith(".gff"):
-                    sep = "="
-                else:
-                    sep = " "
-                feature_id = a.split(sep)[1].strip('"').strip("'")
-                break
+        if gff_file.endswith('.gff'):
+            sep = '='
+        elif gff_file.endswith('.gtf'):
+            sep = ' '
         else:
-            feature_id = 'MISSING'
+            raise ValueError('Annotation file "{}" ends with unknown suffix')
+
+        annot = dict(item.replace('"', '').strip().split(sep)
+                     for item in annot.split(';')
+                     if item.strip()
+                    )
+
+        feature_id = annot.get(id_name, 'MISSING')
+        if feature_id == 'MISSING':
             lm.log("Can't find {} in line: '{}'".format(
                 id_name, line.strip()),
                 level='warn'
@@ -102,6 +107,10 @@ def get_gene_coords(gff_file, id_name, feature_type='exon'):
             continue
         gene_coords[feature_id][0] = chrom
         gene_coords[feature_id][1].add((int(left), int(right)))
+        for field in extra_fields:
+            if (field in annot) and (field not in gene_coords[2]):
+                gene_coords[2][field] = annot[field]
+
     gene_coords_out = {}
     for entry in gene_coords:
         gene_coords_out[entry] = gene_coords[entry]
@@ -274,6 +283,7 @@ def parse_args():
     parser.add_argument('--min-reads-per-allele', '-M', default=0, type=int)
     parser.add_argument('--print-coords', '-C', default=False,
                         action='store_true')
+    parser.add_argument('--extra-fields', default=[], nargs='*')
 
     args = parser.parse_args()
     if args.ase_function not in ase_fcns:
@@ -285,7 +295,7 @@ if __name__ == "__main__":
     args = parse_args()
     reads = AlignmentFile(args.reads,'rb')
     snp_dict = get_snps(args.snp_file)
-    gene_coords = get_gene_coords(args.gff_file, args.id_name)
+    gene_coords = get_gene_coords(args.gff_file, args.id_name, args.extra_fields)
     lib_size = get_lib_size(args.reads)
     ase_vals = {}
     if False and args.max_jobs != 1:
@@ -369,6 +379,7 @@ if __name__ == "__main__":
     print("# Library size: " + str(lib_size), file=args.outfile, end='\n')
     columns = ['gene', 'chrom', 'ref_counts', 'alt_counts', 'no_ase_counts',
             'ambig_ase_counts', 'ase_value',]
+    columns.extend(args.extra_fields)
     if args.print_coords:
         columns.insert(2, 'coords')
     print(
@@ -390,6 +401,8 @@ if __name__ == "__main__":
                 ase_vals[gene][None],
                 ase_vals[gene][0],
                 ase_val,]
+        out_data += [gene_coords[gene][2].get(field, 'MISSING')
+                     for field in args.extra_fields]
         if args.print_coords:
             out_data.insert(2, '{}-{}'.format(
                 min(i[0] for i in gene_coords[gene][1]),
