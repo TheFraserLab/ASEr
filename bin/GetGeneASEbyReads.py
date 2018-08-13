@@ -108,8 +108,8 @@ def get_gene_coords(gff_file, id_name, feature_type='exon', extra_fields=[]):
         gene_coords[feature_id][0] = chrom
         gene_coords[feature_id][1].add((int(left), int(right)))
         for field in extra_fields:
-            if (field in annot) and (field not in gene_coords[2]):
-                gene_coords[2][field] = annot[field]
+            if (field in annot) and (field not in gene_coords[feature_id][2]):
+                gene_coords[feature_id][2][field] = annot[field]
 
     gene_coords_out = {}
     for entry in gene_coords:
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     args = parse_args()
     reads = AlignmentFile(args.reads,'rb')
     snp_dict = get_snps(args.snp_file)
-    gene_coords = get_gene_coords(args.gff_file, args.id_name, args.extra_fields)
+    gene_coords = get_gene_coords(args.gff_file, args.id_name, extra_fields = args.extra_fields)
     lib_size = get_lib_size(args.reads)
     ase_vals = {}
     if False and args.max_jobs != 1:
