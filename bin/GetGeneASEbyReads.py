@@ -84,7 +84,6 @@ def get_gene_coords(gff_file, id_name, feature_type='exon', extra_fields=[]):
 
         chrom, _, feature, left, right, _, _, _, annot = (
                 line.split('\t'))
-        if feature != feature_type: continue
 
         if gff_file.endswith('.gff'):
             sep = '='
@@ -99,6 +98,12 @@ def get_gene_coords(gff_file, id_name, feature_type='exon', extra_fields=[]):
                     )
 
         feature_id = annot.get(id_name, 'MISSING')
+        if feature_type != feature and feature_id == "MISSING":
+            continue
+        for field in extra_fields:
+            if (field in annot) and (field not in gene_coords[feature_id][2]):
+                gene_coords[feature_id][2][field] = annot[field]
+        if feature != feature_type: continue
         if feature_id == 'MISSING':
             lm.log("Can't find {} in line: '{}'".format(
                 id_name, line.strip()),
@@ -107,9 +112,6 @@ def get_gene_coords(gff_file, id_name, feature_type='exon', extra_fields=[]):
             continue
         gene_coords[feature_id][0] = chrom
         gene_coords[feature_id][1].add((int(left), int(right)))
-        for field in extra_fields:
-            if (field in annot) and (field not in gene_coords[feature_id][2]):
-                gene_coords[feature_id][2][field] = annot[field]
 
     gene_coords_out = {}
     for entry in gene_coords:
